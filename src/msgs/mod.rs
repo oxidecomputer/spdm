@@ -1,3 +1,4 @@
+pub mod capabilities;
 pub mod encoding;
 pub mod version;
 
@@ -42,7 +43,7 @@ pub trait Msg {
     }
 
     fn write_header(w: &mut Writer) -> Result<usize, WriteError> {
-        w.push(Self::spdm_version())?;
-        w.push(Self::spdm_code())
+        w.put(Self::spdm_version())?;
+        w.put(Self::spdm_code())
     }
 }

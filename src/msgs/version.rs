@@ -18,25 +18,16 @@ impl Msg for GetVersion {
 
     fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
         // Reserved bytes
-        w.push(0)?;
-        w.push(0)
+        w.put(0)?;
+        w.put(0)
     }
 }
 
 impl GetVersion {
     pub fn parse_body(buf: &[u8]) -> Result<GetVersion, ReadError> {
-        if buf.len() < 2 {
-            return Err(ReadError::new(Self::name(), ReadErrorKind::Empty));
-        }
-        // Reserved bytes
-        if buf[0] != 0 || buf[1] != 0 {
-            Err(ReadError::new(
-                Self::name(),
-                ReadErrorKind::ReservedByteNotZero,
-            ))
-        } else {
-            Ok(GetVersion {})
-        }
+        let mut reader = Reader::new(Self::name(), buf);
+        reader.skip_reserved(2)?;
+        Ok(GetVersion {})
     }
 }
 
@@ -94,15 +85,15 @@ impl Msg for Version {
 
     fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
         // Reserved bytes
-        w.push(0)?;
-        w.push(0)?;
-        w.push(0)?;
+        w.put(0)?;
+        w.put(0)?;
+        w.put(0)?;
 
-        w.push(self.num_entries)?;
+        w.put(self.num_entries)?;
 
         for v in self.entries.iter() {
-            w.push(v.alpha | (v.update << 4))?;
-            w.push(v.minor | (v.major << 4))?;
+            w.put(v.alpha | (v.update << 4))?;
+            w.put(v.minor | (v.major << 4))?;
         }
 
         Ok(w.offset())
@@ -113,19 +104,10 @@ impl Version {
     pub fn parse_body(buf: &[u8]) -> Result<Version, ReadError> {
         let mut reader = Reader::new(Self::name(), buf);
 
-        // 3 reserved bytes
-        for _ in 0..3 {
-            let reserved = reader.read_byte()?;
-            if reserved != 0 {
-                return Err(ReadError::new(
-                    Self::name(),
-                    ReadErrorKind::ReservedByteNotZero,
-                ));
-            }
-        }
+        reader.skip_reserved(3)?;
 
         // 1 byte number of version entries
-        let num_entries = reader.read_byte()?;
+        let num_entries = reader.get_byte()?;
         if num_entries > MAX_ALLOWED_VERSIONS {
             return Err(ReadError::new(
                 Self::name(),
@@ -139,10 +121,10 @@ impl Version {
         // Num entries * 2 bytes
         for i in 0..(num_entries as usize) {
             version.entries[i] = VersionEntry {
-                alpha: reader.read_bits(4)?,
-                update: reader.read_bits(4)?,
-                minor: reader.read_bits(4)?,
-                major: reader.read_bits(4)?,
+                alpha: reader.get_bits(4)?,
+                update: reader.get_bits(4)?,
+                minor: reader.get_bits(4)?,
+                major: reader.get_bits(4)?,
             };
         }
 

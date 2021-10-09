@@ -1,3 +1,5 @@
+use core::convert::TryInto;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WriteError {
     msg: &'static str,
@@ -24,8 +26,8 @@ impl<'a> Writer<'a> {
     /// Append a byte onto the buffer.
     ///
     /// Return the amount of the buffer used or an error if the buffer is full.
-    pub fn push(&mut self, value: u8) -> Result<usize, WriteError> {
-        if self.full() {
+    pub fn put(&mut self, value: u8) -> Result<usize, WriteError> {
+        if self.is_full() {
             Err(WriteError::new(self.msg, self.buf.len()))
         } else {
             self.buf[self.offset] = value;
@@ -34,10 +36,34 @@ impl<'a> Writer<'a> {
         }
     }
 
-    pub fn full(&self) -> bool {
+    /// Append a 0 byte onto the buffer.
+    /// This is a first class method, because the protocol has so many skip_reserved bytes.
+    pub fn put_reserved(&mut self, num_bytes: u8) -> Result<usize, WriteError> {
+        for _ in 0..num_bytes {
+            self.put(0)?;
+        }
+        Ok(self.offset)
+    }
+
+    pub fn put_u32(&mut self, num: u32) -> Result<usize, WriteError> {
+        let buf = num.to_le_bytes();
+        for i in 0..4 {
+            self.put(buf[i])?;
+        }
+        Ok(self.offset)
+    }
+
+    /// Return true if the buffer is full, false otherwise.
+    pub fn is_full(&self) -> bool {
         self.offset == self.buf.len()
     }
 
+    /// Number of bytes remaining in buffer.
+    pub fn remaining(&self) -> usize {
+        self.buf.len() - self.offset
+    }
+
+    /// Return the current byte offset into the buffer.
     pub fn offset(&self) -> usize {
         self.offset
     }
@@ -52,9 +78,15 @@ pub enum ReadErrorKind {
     // An attempt to read one or more bytes not on a byte boundary
     Unaligned,
 
-    // An attempt to read more than 7 bits in read_bits
+    // An attempt to read more than 7 bits in get_bits
     TooManyBits,
     TooManyEntries,
+
+    // An attempt to convert a type via std::convert::TryInto failed. This should *never* happen.
+    TypeConversionFailed,
+
+    // Bits not defined by bitflags were incorrectly set
+    InvalidBitsSet,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,24 +113,34 @@ impl<'a> Reader<'a> {
         Reader { msg, buf, byte_offset: 0, bit_offset: 0 }
     }
 
-    pub fn read_byte(&mut self) -> Result<u8, ReadError> {
-        if !self.aligned() {
-            return Err(ReadError::new(self.msg, ReadErrorKind::Unaligned));
+    pub fn get_byte(&mut self) -> Result<u8, ReadError> {
+        if !self.is_aligned() {
+            return Err(self.err(ReadErrorKind::Unaligned));
         }
-        if self.empty() {
-            return Err(ReadError::new(self.msg, ReadErrorKind::Empty));
+        if self.is_empty() {
+            return Err(self.err(ReadErrorKind::Empty));
         }
         let b = self.buf[self.byte_offset];
         self.byte_offset += 1;
         Ok(b)
     }
 
+    pub fn skip_reserved(&mut self, num_bytes: u8) -> Result<(), ReadError> {
+        for _ in 0..num_bytes {
+            let byte = self.get_byte()?;
+            if byte != 0 {
+                return Err(self.err(ReadErrorKind::ReservedByteNotZero));
+            }
+        }
+        Ok(())
+    }
+
     // Read least significant bits in order.
     //
     // Allow reading up to 7 bits at a time.
     // The read does not have to be aligned.
-    pub fn read_bits(&mut self, count: u8) -> Result<u8, ReadError> {
-        if self.empty() {
+    pub fn get_bits(&mut self, count: u8) -> Result<u8, ReadError> {
+        if self.is_empty() {
             return Err(ReadError::new(self.msg, ReadErrorKind::Empty));
         }
         if count > 7 {
@@ -136,16 +178,39 @@ impl<'a> Reader<'a> {
         }
     }
 
-    pub fn read_bit(&mut self) -> Result<u8, ReadError> {
-        self.read_bits(1)
+    pub fn get_bit(&mut self) -> Result<u8, ReadError> {
+        self.get_bits(1)
     }
 
-    pub fn empty(&self) -> bool {
+    pub fn get_u32(&mut self) -> Result<u32, ReadError> {
+        if !self.is_aligned() {
+            return Err(self.err(ReadErrorKind::Unaligned));
+        }
+        if self.remaining() < 4 {
+            return Err(self.err(ReadErrorKind::Empty));
+        }
+        let pos = self.byte_offset;
+        let buf: &[u8; 4] = &self.buf[pos..pos + 4]
+            .try_into()
+            .map_err(|_| self.err(ReadErrorKind::TypeConversionFailed))?;
+        self.byte_offset += 4;
+        Ok(u32::from_le_bytes(*buf))
+    }
+
+    pub fn remaining(&self) -> usize {
+        self.buf.len() - self.byte_offset
+    }
+
+    pub fn is_empty(&self) -> bool {
         self.buf.len() == self.byte_offset
     }
 
-    pub fn aligned(&self) -> bool {
+    pub fn is_aligned(&self) -> bool {
         self.bit_offset == 0
+    }
+
+    fn err(&self, kind: ReadErrorKind) -> ReadError {
+        ReadError::new(self.msg, kind)
     }
 }
 
@@ -157,21 +222,21 @@ mod tests {
     fn read_by_4_bits() {
         let buf = [0xF0, 0xF0];
         let mut reader = Reader::new("TEST_MSG", &buf);
-        assert_eq!(0x00, reader.read_bits(4).unwrap());
-        assert!(!reader.aligned());
-        assert!(!reader.empty());
+        assert_eq!(0x00, reader.get_bits(4).unwrap());
+        assert!(!reader.is_aligned());
+        assert!(!reader.is_empty());
 
-        assert_eq!(0x0F, reader.read_bits(4).unwrap());
-        assert!(reader.aligned());
-        assert!(!reader.empty());
+        assert_eq!(0x0F, reader.get_bits(4).unwrap());
+        assert!(reader.is_aligned());
+        assert!(!reader.is_empty());
 
-        assert_eq!(0x00, reader.read_bits(4).unwrap());
-        assert!(!reader.aligned());
-        assert!(!reader.empty());
+        assert_eq!(0x00, reader.get_bits(4).unwrap());
+        assert!(!reader.is_aligned());
+        assert!(!reader.is_empty());
 
-        assert_eq!(0x0F, reader.read_bits(4).unwrap());
-        assert!(reader.aligned());
-        assert!(reader.empty());
+        assert_eq!(0x0F, reader.get_bits(4).unwrap());
+        assert!(reader.is_aligned());
+        assert!(reader.is_empty());
     }
 
     #[test]
@@ -180,32 +245,32 @@ mod tests {
         let mut reader = Reader::new("TEST_MSG", &buf);
 
         // 0b000
-        assert_eq!(0x00, reader.read_bits(3).unwrap());
-        assert!(!reader.aligned());
-        assert!(!reader.empty());
+        assert_eq!(0x00, reader.get_bits(3).unwrap());
+        assert!(!reader.is_aligned());
+        assert!(!reader.is_empty());
 
         // 0b110
-        assert_eq!(0x06, reader.read_bits(3).unwrap());
-        assert!(!reader.aligned());
-        assert!(!reader.empty());
+        assert_eq!(0x06, reader.get_bits(3).unwrap());
+        assert!(!reader.is_aligned());
+        assert!(!reader.is_empty());
 
         // Cross byte boundary
         // 0b011
-        assert_eq!(0x03, reader.read_bits(3).unwrap());
-        assert!(!reader.aligned());
-        assert!(!reader.empty());
+        assert_eq!(0x03, reader.get_bits(3).unwrap());
+        assert!(!reader.is_aligned());
+        assert!(!reader.is_empty());
 
         // 0b000
-        assert_eq!(0x00, reader.read_bits(3).unwrap());
-        assert!(!reader.aligned());
-        assert!(!reader.empty());
+        assert_eq!(0x00, reader.get_bits(3).unwrap());
+        assert!(!reader.is_aligned());
+        assert!(!reader.is_empty());
 
         // 0b111
-        assert_eq!(0x07, reader.read_bits(3).unwrap());
-        assert!(!reader.aligned());
-        assert!(!reader.empty());
+        assert_eq!(0x07, reader.get_bits(3).unwrap());
+        assert!(!reader.is_aligned());
+        assert!(!reader.is_empty());
 
-        assert!(reader.read_bits(3).is_err());
+        assert!(reader.get_bits(3).is_err());
         assert_eq!(1, reader.byte_offset);
         assert_eq!(7, reader.bit_offset);
     }
@@ -214,28 +279,28 @@ mod tests {
     fn read_by_gt_8_bits_fails() {
         let buf = [0xF0, 0xF0];
         let mut reader = Reader::new("TEST_MSG", &buf);
-        assert!(reader.read_bits(8).is_err());
-        assert!(reader.read_bits(9).is_err());
-        assert!(reader.read_bits(10).is_err());
+        assert!(reader.get_bits(8).is_err());
+        assert!(reader.get_bits(9).is_err());
+        assert!(reader.get_bits(10).is_err());
     }
 
     #[test]
-    fn read_bit_by_bit() {
+    fn get_bit_by_bit() {
         let buf = [0xF0, 0xF0];
         let mut reader = Reader::new("TEST_MSG", &buf);
         for i in 0..4 {
             if i % 2 == 0 {
-                assert!(reader.aligned());
+                assert!(reader.is_aligned());
             }
             for _ in 0..4 {
                 if i % 2 == 0 {
-                    assert_eq!(0x00, reader.read_bit().unwrap());
+                    assert_eq!(0x00, reader.get_bit().unwrap());
                 } else {
-                    assert_eq!(0x01, reader.read_bit().unwrap());
+                    assert_eq!(0x01, reader.get_bit().unwrap());
                 }
             }
         }
-        assert!(reader.empty());
-        assert!(reader.read_bit().is_err());
+        assert!(reader.is_empty());
+        assert!(reader.get_bit().is_err());
     }
 }
