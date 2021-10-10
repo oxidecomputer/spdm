@@ -5,7 +5,7 @@ use bitflags::bitflags;
 
 bitflags! {
     #[derive(Default)]
-    struct ReqFlags: u32 {
+    pub struct ReqFlags: u32 {
         const CERT_CAP = 0b0000_0010;
         const CHAL_CAP = 0b0000_0100;
         const ENCRYPT_CAP = 0b0100_0000;
@@ -22,9 +22,10 @@ bitflags! {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GetCapabilities {
-    ct_exponent: u8,
-    flags: ReqFlags,
+    pub ct_exponent: u8,
+    pub flags: ReqFlags,
 }
 
 impl Msg for GetCapabilities {
@@ -59,5 +60,52 @@ impl GetCapabilities {
             ReadError::new(Self::name(), ReadErrorKind::InvalidBitsSet)
         })?;
         Ok(GetCapabilities { ct_exponent, flags })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn get_capabilities_parses_correctly() {
+        let mut buf = [0u8; 16];
+        let msg = GetCapabilities {
+            ct_exponent: 12,
+            flags: ReqFlags::CERT_CAP
+                | ReqFlags::CHAL_CAP
+                | ReqFlags::ENCRYPT_CAP
+                | ReqFlags::MAC_CAP
+                | ReqFlags::KEY_EX_CAP
+                | ReqFlags::MUT_AUTH_CAP,
+        };
+
+        // This message serializes into 12 bytes
+        assert_eq!(12, msg.write(&mut buf).unwrap());
+        assert_eq!(Ok(true), GetCapabilities::parse_header(&buf));
+        let msg2 = GetCapabilities::parse_body(&buf[2..]).unwrap();
+        assert_eq!(msg, msg2);
+    }
+
+    #[test]
+    fn get_capabilities_fails_to_parse_with_invalid_flags() {
+        let mut buf = [0u8; 16];
+        let msg = GetCapabilities {
+            ct_exponent: 12,
+            flags: ReqFlags::CERT_CAP
+                | ReqFlags::CHAL_CAP
+                | ReqFlags::ENCRYPT_CAP
+                | ReqFlags::MAC_CAP
+                | ReqFlags::KEY_EX_CAP
+                | ReqFlags::MUT_AUTH_CAP,
+        };
+
+        assert_eq!(12, msg.write(&mut buf).unwrap());
+
+        // Set bit 0 of flags (which is reserved and must be 0).
+        let invalid = 0x1;
+        buf[8] = invalid;
+
+        assert!(GetCapabilities::parse_body(&buf[2..]).is_err());
     }
 }
