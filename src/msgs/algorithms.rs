@@ -61,7 +61,7 @@ bitflags! {
 }
 
 // We don't currently support any external algorithms
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DheAlgorithm {
     pub supported: DheFixedAlgorithms,
 }
@@ -81,7 +81,7 @@ bitflags! {
 }
 
 // We don't currently support any external algorithms
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AeadAlgorithm {
     pub supported: AeadFixedAlgorithms,
 }
@@ -107,7 +107,7 @@ bitflags! {
 }
 
 // We don't currently support any external algorithms
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReqBaseAsymAlgorithm {
     pub supported: ReqBaseAsymFixedAlgorithms,
 }
@@ -125,7 +125,7 @@ bitflags! {
 }
 
 // We don't currently support any external algorithms
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct KeyScheduleAlgorithm {
     pub supported: KeyScheduleFixedAlgorithms,
 }
@@ -135,7 +135,7 @@ impl AlgorithmConstants for KeyScheduleAlgorithm {
     const FIXED_ALG_COUNT: u8 = 2;
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AlgorithmRequest {
     Dhe(DheAlgorithm),
     Aead(AeadAlgorithm),
@@ -292,6 +292,7 @@ const MAX_ALGORITHM_REQUESTS: usize = 4;
 /// For simplicity and expediency we don't support any extended algorithms yet
 /// in this implementation. This corresponds to the ExtAsym and ExtHash fields
 /// in the spec, as well as the fields related to their sizes.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NegotiateAlgorithms {
     pub measurement_spec: MeasurementSpec,
     pub base_asym_algo: BaseAsymAlgo,
@@ -609,5 +610,101 @@ impl Algorithms {
 
     fn too_many_bits() -> Result<Algorithms, ReadError> {
         Err(ReadError::new(Self::name(), ReadErrorKind::TooManyBitsSet))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn algo_requests(
+        requests: &mut [AlgorithmRequest; MAX_ALGORITHM_REQUESTS],
+    ) {
+        requests[0] = AlgorithmRequest::Dhe(DheAlgorithm {
+            supported: DheFixedAlgorithms::FFDHE_3072
+                | DheFixedAlgorithms::SECP_384_R1,
+        });
+        requests[1] = AlgorithmRequest::Aead(AeadAlgorithm {
+            supported: AeadFixedAlgorithms::AES_256_GCM
+                | AeadFixedAlgorithms::CHACHA20_POLY1305,
+        });
+        requests[2] = AlgorithmRequest::ReqBaseAsym(ReqBaseAsymAlgorithm {
+            supported: ReqBaseAsymFixedAlgorithms::ECDSA_ECC_NIST_P384
+                | ReqBaseAsymFixedAlgorithms::ECDSA_ECC_NIST_P256,
+        });
+        requests[3] = AlgorithmRequest::KeySchedule(KeyScheduleAlgorithm {
+            supported: KeyScheduleFixedAlgorithms::SPDM,
+        });
+    }
+
+    fn negotiate_algo(
+        requests: [AlgorithmRequest; MAX_ALGORITHM_REQUESTS],
+    ) -> NegotiateAlgorithms {
+        NegotiateAlgorithms {
+            measurement_spec: MeasurementSpec::DMTF,
+            base_asym_algo: BaseAsymAlgo::ECDSA_ECC_NIST_P256
+                | BaseAsymAlgo::ECDSA_ECC_NIST_P521,
+            base_hash_algo: BaseHashAlgo::SHA_384 | BaseHashAlgo::SHA3_384,
+            num_algorithm_requests: 4,
+            algorithm_requests: requests,
+        }
+    }
+
+    #[test]
+    fn negotiate_algorithms_parses_correctly() {
+        let mut buf = [0u8; 128];
+        let mut requests =
+            [AlgorithmRequest::default(); MAX_ALGORITHM_REQUESTS];
+        algo_requests(&mut requests);
+        let msg = negotiate_algo(requests);
+
+        assert_eq!(48, msg.write(&mut buf).unwrap());
+        assert_eq!(Ok(true), NegotiateAlgorithms::parse_header(&buf));
+
+        let msg2 = NegotiateAlgorithms::parse_body(&buf[2..]).unwrap();
+        assert_eq!(msg, msg2);
+    }
+
+    // We can't actually create this NegotiateAlgorithms message from our code,
+    // so we must do it manually in the test as if we are interroperating with
+    // a client written by an external party.
+    //
+    // In this case we skip any external algorithms as they are not suppported
+    // and only negotiate based on the fixed algorithms.
+    #[test]
+    fn negotiate_algorithms_with_external_algorithms_skipped_parses_correctly()
+    {
+        let mut buf = [0u8; 128];
+        let mut requests =
+            [AlgorithmRequest::default(); MAX_ALGORITHM_REQUESTS];
+        algo_requests(&mut requests);
+        let msg = negotiate_algo(requests);
+        assert_eq!(48, msg.write(&mut buf).unwrap());
+
+        // patch counts to pretend there are external algorithms
+        const EXT_ASYM_COUNT_POS: usize = 28;
+        const EXT_HASH_COUNT_POS: usize = 29;
+        const EXT_ASYM_COUNT: usize = 2;
+        const EXT_HASH_COUNT: usize = 2;
+        buf[EXT_ASYM_COUNT_POS] = 2;
+        buf[EXT_HASH_COUNT_POS] = 2;
+
+        // Reading will fail here because we didn't incorporate ExtAsym and
+        // ExtHash fields.
+        assert!(NegotiateAlgorithms::parse_body(&buf[2..]).is_err());
+
+        // Now move the ReqAlgStruct past the skipped external algos. This
+        // will allow proper parsing.
+        const ALG_STRUCT_SIZE: usize = 16;
+        const ORIG_OFFSET: usize = 32;
+        let mut alg_struct = [0u8; ALG_STRUCT_SIZE];
+        alg_struct
+            .copy_from_slice(&buf[ORIG_OFFSET..ORIG_OFFSET + ALG_STRUCT_SIZE]);
+        let new_offset =
+            ORIG_OFFSET + EXT_ASYM_COUNT * 4 + EXT_HASH_COUNT * 4;
+        buf[new_offset..new_offset + ALG_STRUCT_SIZE].copy_from_slice(&alg_struct);
+
+        let msg2 = NegotiateAlgorithms::parse_body(&buf[2..]).unwrap();
+        assert_eq!(msg, msg2);
     }
 }
