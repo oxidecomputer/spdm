@@ -99,6 +99,9 @@ pub enum ReadErrorKind {
     /// Bits not defined by bitflags were incorrectly set
     InvalidBitsSet,
 
+    // More than one bit was set in a selection
+    TooManyBitsSet,
+
     /// SPDM limits the values of some message fields
     SpdmLimitReached,
 

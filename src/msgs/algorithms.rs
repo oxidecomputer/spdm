@@ -153,7 +153,7 @@ impl Default for AlgorithmRequest {
 impl AlgorithmRequest {
     /// Return the number of bytes required to fit fixed spdm algorithm options
     /// for the given algorithm type.
-    pub fn fixed_algo_size(&self) -> u8 {
+    pub fn fixed_algo_count(&self) -> u8 {
         match self {
             AlgorithmRequest::Dhe(_) => DheAlgorithm::FIXED_ALG_COUNT,
             AlgorithmRequest::Aead(_) => AeadAlgorithm::FIXED_ALG_COUNT,
@@ -163,6 +163,125 @@ impl AlgorithmRequest {
             AlgorithmRequest::KeySchedule(_) => {
                 KeyScheduleAlgorithm::FIXED_ALG_COUNT
             }
+        }
+    }
+
+    pub fn write(&self, w: &mut Writer) -> Result<usize, WriteError> {
+        match &self {
+            AlgorithmRequest::Dhe(algo) => {
+                w.put(DheAlgorithm::TYPE)?;
+                w.put(DheAlgorithm::FIXED_ALG_COUNT << 4)?;
+                w.put_u16(algo.supported.bits())?;
+            }
+            AlgorithmRequest::Aead(algo) => {
+                w.put(AeadAlgorithm::TYPE)?;
+                w.put(AeadAlgorithm::FIXED_ALG_COUNT << 4)?;
+                w.put_u16(algo.supported.bits())?;
+            }
+            AlgorithmRequest::ReqBaseAsym(algo) => {
+                w.put(ReqBaseAsymAlgorithm::TYPE)?;
+                w.put(ReqBaseAsymAlgorithm::FIXED_ALG_COUNT << 4)?;
+                w.put_u16(algo.supported.bits())?;
+            }
+            AlgorithmRequest::KeySchedule(algo) => {
+                w.put(KeyScheduleAlgorithm::TYPE)?;
+                w.put(KeyScheduleAlgorithm::FIXED_ALG_COUNT << 4)?;
+                w.put_u16(algo.supported.bits())?;
+            }
+        }
+        Ok(w.offset())
+    }
+
+    pub fn read(
+        msg_name: &'static str,
+        r: &mut Reader,
+    ) -> Result<AlgorithmRequest, ReadError> {
+        match r.get_byte()? {
+            DheAlgorithm::TYPE => {
+                let ext_count = r.get_bits(4)?;
+                let fixed_count = r.get_bits(4)?;
+                if fixed_count != DheAlgorithm::FIXED_ALG_COUNT {
+                    return Err(ReadError::new(
+                        msg_name,
+                        ReadErrorKind::UnexpectedValue,
+                    ));
+                }
+                let supported = r.get_u16()?;
+                let supported = DheFixedAlgorithms::from_bits(supported)
+                    .ok_or_else(|| {
+                        ReadError::new(msg_name, ReadErrorKind::InvalidBitsSet)
+                    })?;
+                r.skip_ignored(4 * ext_count)?;
+                Ok(AlgorithmRequest::Dhe(DheAlgorithm { supported }))
+            }
+
+            AeadAlgorithm::TYPE => {
+                let ext_count = r.get_bits(4)?;
+                let fixed_count = r.get_bits(4)?;
+                if fixed_count != AeadAlgorithm::FIXED_ALG_COUNT {
+                    return Err(ReadError::new(
+                        msg_name,
+                        ReadErrorKind::UnexpectedValue,
+                    ));
+                }
+                let supported = r.get_u16()?;
+                let supported = AeadFixedAlgorithms::from_bits(supported)
+                    .ok_or_else(|| {
+                        ReadError::new(msg_name, ReadErrorKind::InvalidBitsSet)
+                    })?;
+                r.skip_ignored(4 * ext_count)?;
+                Ok(AlgorithmRequest::Aead(AeadAlgorithm { supported }))
+            }
+
+            ReqBaseAsymAlgorithm::TYPE => {
+                let ext_count = r.get_bits(4)?;
+                let fixed_count = r.get_bits(4)?;
+                if fixed_count != ReqBaseAsymAlgorithm::FIXED_ALG_COUNT {
+                    return Err(ReadError::new(
+                        msg_name,
+                        ReadErrorKind::UnexpectedValue,
+                    ));
+                }
+                let supported = r.get_u16()?;
+                let supported =
+                    ReqBaseAsymFixedAlgorithms::from_bits(supported)
+                        .ok_or_else(|| {
+                            ReadError::new(
+                                msg_name,
+                                ReadErrorKind::InvalidBitsSet,
+                            )
+                        })?;
+                r.skip_ignored(4 * ext_count)?;
+                Ok(AlgorithmRequest::ReqBaseAsym(ReqBaseAsymAlgorithm {
+                    supported,
+                }))
+            }
+
+            KeyScheduleAlgorithm::TYPE => {
+                let ext_count = r.get_bits(4)?;
+                let fixed_count = r.get_bits(4)?;
+                if fixed_count != KeyScheduleAlgorithm::FIXED_ALG_COUNT {
+                    return Err(ReadError::new(
+                        msg_name,
+                        ReadErrorKind::UnexpectedValue,
+                    ));
+                }
+                let supported = r.get_u16()?;
+                let supported =
+                    KeyScheduleFixedAlgorithms::from_bits(supported)
+                        .ok_or_else(|| {
+                            ReadError::new(
+                                msg_name,
+                                ReadErrorKind::InvalidBitsSet,
+                            )
+                        })?;
+                r.skip_ignored(4 * ext_count)?;
+                Ok(AlgorithmRequest::KeySchedule(KeyScheduleAlgorithm {
+                    supported,
+                }))
+            }
+
+            _ => Err(ReadError::new(msg_name, ReadErrorKind::UnexpectedValue)),
         }
     }
 }
@@ -223,6 +342,7 @@ impl NegotiateAlgorithms {
 
         r.skip_reserved(1)?;
 
+        // TODO: Use this for validation?
         let length = r.get_u16()?;
         if length > 128 {
             return Err(ReadError::new(
@@ -283,108 +403,7 @@ impl NegotiateAlgorithms {
         requests: &mut [AlgorithmRequest; MAX_ALGORITHM_REQUESTS],
     ) -> Result<(), ReadError> {
         for i in 0..num_requests as usize {
-            match r.get_byte()? {
-                DheAlgorithm::TYPE => {
-                    let ext_count = r.get_bits(4)?;
-                    let fixed_count = r.get_bits(4)?;
-                    if fixed_count != DheAlgorithm::FIXED_ALG_COUNT {
-                        return Err(ReadError::new(
-                            Self::name(),
-                            ReadErrorKind::UnexpectedValue,
-                        ));
-                    }
-                    let supported = r.get_u16()?;
-                    let supported = DheFixedAlgorithms::from_bits(supported)
-                        .ok_or_else(|| {
-                            ReadError::new(
-                                Self::name(),
-                                ReadErrorKind::InvalidBitsSet,
-                            )
-                        })?;
-                    r.skip_ignored(4 * ext_count)?;
-                    requests[i] =
-                        AlgorithmRequest::Dhe(DheAlgorithm { supported });
-                }
-
-                AeadAlgorithm::TYPE => {
-                    let ext_count = r.get_bits(4)?;
-                    let fixed_count = r.get_bits(4)?;
-                    if fixed_count != AeadAlgorithm::FIXED_ALG_COUNT {
-                        return Err(ReadError::new(
-                            Self::name(),
-                            ReadErrorKind::UnexpectedValue,
-                        ));
-                    }
-                    let supported = r.get_u16()?;
-                    let supported = AeadFixedAlgorithms::from_bits(supported)
-                        .ok_or_else(|| {
-                        ReadError::new(
-                            Self::name(),
-                            ReadErrorKind::InvalidBitsSet,
-                        )
-                    })?;
-                    r.skip_ignored(4 * ext_count)?;
-                    requests[i] =
-                        AlgorithmRequest::Aead(AeadAlgorithm { supported });
-                }
-
-                ReqBaseAsymAlgorithm::TYPE => {
-                    let ext_count = r.get_bits(4)?;
-                    let fixed_count = r.get_bits(4)?;
-                    if fixed_count != ReqBaseAsymAlgorithm::FIXED_ALG_COUNT {
-                        return Err(ReadError::new(
-                            Self::name(),
-                            ReadErrorKind::UnexpectedValue,
-                        ));
-                    }
-                    let supported = r.get_u16()?;
-                    let supported =
-                        ReqBaseAsymFixedAlgorithms::from_bits(supported)
-                            .ok_or_else(|| {
-                                ReadError::new(
-                                    Self::name(),
-                                    ReadErrorKind::InvalidBitsSet,
-                                )
-                            })?;
-                    r.skip_ignored(4 * ext_count)?;
-                    requests[i] =
-                        AlgorithmRequest::ReqBaseAsym(ReqBaseAsymAlgorithm {
-                            supported,
-                        });
-                }
-
-                KeyScheduleAlgorithm::TYPE => {
-                    let ext_count = r.get_bits(4)?;
-                    let fixed_count = r.get_bits(4)?;
-                    if fixed_count != KeyScheduleAlgorithm::FIXED_ALG_COUNT {
-                        return Err(ReadError::new(
-                            Self::name(),
-                            ReadErrorKind::UnexpectedValue,
-                        ));
-                    }
-                    let supported = r.get_u16()?;
-                    let supported =
-                        KeyScheduleFixedAlgorithms::from_bits(supported)
-                            .ok_or_else(|| {
-                                ReadError::new(
-                                    Self::name(),
-                                    ReadErrorKind::InvalidBitsSet,
-                                )
-                            })?;
-                    r.skip_ignored(4 * ext_count)?;
-                    requests[i] =
-                        AlgorithmRequest::KeySchedule(KeyScheduleAlgorithm {
-                            supported,
-                        });
-                }
-
-                _ => {
-                    return Err(ReadError::new(
-                        Self::name(),
-                        ReadErrorKind::UnexpectedValue,
-                    ));
-                }
-            }
+            requests[i] = AlgorithmRequest::read(Self::name(), r)?;
         }
         Ok(())
     }
@@ -393,7 +412,7 @@ impl NegotiateAlgorithms {
         self.algorithm_requests[0..self.num_algorithm_requests as usize]
             .iter()
             .fold(32, |acc, algo_req| {
-                acc + 2 + algo_req.fixed_algo_size() as u16
+                acc + 2 + algo_req.fixed_algo_count() as u16
             })
     }
 
@@ -402,29 +421,193 @@ impl NegotiateAlgorithms {
         w: &mut Writer,
     ) -> Result<usize, WriteError> {
         for i in 0..self.num_algorithm_requests as usize {
-            match &self.algorithm_requests[i] {
-                AlgorithmRequest::Dhe(algo) => {
-                    w.put(DheAlgorithm::TYPE)?;
-                    w.put(DheAlgorithm::FIXED_ALG_COUNT << 4)?;
-                    w.put_u16(algo.supported.bits())?;
+            self.algorithm_requests[i].write(w)?;
+        }
+        Ok(w.offset())
+    }
+}
+
+// The format is the same for both messages
+type AlgorithmResponse = AlgorithmRequest;
+
+pub struct Algorithms {
+    pub measurement_spec_selected: MeasurementSpec,
+    pub measurement_hash_algo_selected: BaseHashAlgo,
+    pub base_asym_algo_selected: BaseAsymAlgo,
+    pub base_hash_algo_selected: BaseHashAlgo,
+    pub num_algorithm_responses: u8, // Param1 in spec
+    pub algorithm_responses: [AlgorithmResponse; MAX_ALGORITHM_REQUESTS],
+}
+
+impl Msg for Algorithms {
+    fn name() -> &'static str {
+        "ALGORITHMS"
+    }
+
+    fn spdm_version() -> u8 {
+        0x11
+    }
+
+    fn spdm_code() -> u8 {
+        0x63
+    }
+
+    fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
+        w.put(self.num_algorithm_responses)?;
+        w.put_reserved(1)?;
+        w.put_u16(self.msg_length())?;
+        w.put(self.measurement_spec_selected.bits())?;
+        w.put_reserved(1)?;
+        w.put_u32(self.measurement_hash_algo_selected.bits())?;
+        w.put_u32(self.base_asym_algo_selected.bits())?;
+        w.put_u32(self.base_hash_algo_selected.bits())?;
+        w.put_reserved(12)?;
+
+        // External Algorithms not supported
+        w.put(0)?; // ExtAsymSelCount
+        w.put(0)?; // ExtHashSelCount
+
+        w.put_reserved(2)?;
+
+        self.write_algorithm_responses(w)
+    }
+}
+
+impl Algorithms {
+    pub fn parse_body(buf: &[u8]) -> Result<Algorithms, ReadError> {
+        let mut r = Reader::new(Self::name(), buf);
+        let num_responses = r.get_byte()?;
+        if num_responses as usize > MAX_ALGORITHM_REQUESTS {
+            return Err(ReadError::new(
+                Self::name(),
+                ReadErrorKind::ImplementationLimitReached,
+            ));
+        }
+
+        r.skip_reserved(1)?;
+
+        // TODO: Use this for validation?
+        let _length = r.get_u16()?;
+
+        let selection = r.get_byte()?;
+        let measurement_spec_selected = MeasurementSpec::from_bits(selection)
+            .ok_or_else(|| {
+            ReadError::new(Self::name(), ReadErrorKind::InvalidBitsSet)
+        })?;
+        if measurement_spec_selected.bits().count_ones() != 1 {
+            return Self::too_many_bits();
+        }
+
+        r.skip_reserved(1)?;
+
+        let selection = r.get_u32()?;
+        let measurement_hash_algo_selected = BaseHashAlgo::from_bits(selection)
+            .ok_or_else(|| {
+                ReadError::new(Self::name(), ReadErrorKind::InvalidBitsSet)
+            })?;
+        if measurement_hash_algo_selected.bits().count_ones() != 1 {
+            return Self::too_many_bits();
+        }
+
+        let selection = r.get_u32()?;
+        let base_asym_algo_selected = BaseAsymAlgo::from_bits(selection)
+            .ok_or_else(|| {
+                ReadError::new(Self::name(), ReadErrorKind::InvalidBitsSet)
+            })?;
+        if base_asym_algo_selected.bits().count_ones() != 1 {
+            return Self::too_many_bits();
+        }
+
+        let selection = r.get_u32()?;
+        let base_hash_algo_selected = BaseHashAlgo::from_bits(selection)
+            .ok_or_else(|| {
+                ReadError::new(Self::name(), ReadErrorKind::InvalidBitsSet)
+            })?;
+        if base_hash_algo_selected.bits().count_ones() != 1 {
+            return Self::too_many_bits();
+        }
+
+        r.skip_reserved(12)?;
+
+        // Exxternal algorithms are not currently supported
+        r.skip_reserved(1)?; // ExtAsymCount must be 0
+        r.skip_reserved(1)?; // ExtHashCount must be 0
+
+        r.skip_reserved(2)?;
+
+        let mut responses =
+            [AlgorithmResponse::default(); MAX_ALGORITHM_REQUESTS];
+        Self::read_algorithm_responses(&mut r, num_responses, &mut responses)?;
+
+        Ok(Algorithms {
+            measurement_spec_selected,
+            measurement_hash_algo_selected,
+            base_asym_algo_selected,
+            base_hash_algo_selected,
+            num_algorithm_responses: num_responses,
+            algorithm_responses: responses,
+        })
+    }
+
+    fn msg_length(&self) -> u16 {
+        self.algorithm_responses[0..self.num_algorithm_responses as usize]
+            .iter()
+            .fold(36, |acc, algo_req| {
+                acc + 2 + algo_req.fixed_algo_count() as u16
+            })
+    }
+
+    fn write_algorithm_responses(
+        &self,
+        w: &mut Writer,
+    ) -> Result<usize, WriteError> {
+        for i in 0..self.num_algorithm_responses as usize {
+            self.algorithm_responses[i].write(w)?;
+        }
+        Ok(w.offset())
+    }
+
+    fn read_algorithm_responses(
+        r: &mut Reader,
+        num_responses: u8,
+        responses: &mut [AlgorithmResponse; MAX_ALGORITHM_REQUESTS],
+    ) -> Result<(), ReadError> {
+        for i in 0..num_responses as usize {
+            responses[i] = AlgorithmResponse::read(Self::name(), r)?;
+            Self::ensure_only_one_bit_set(&responses[i])?;
+        }
+        Ok(())
+    }
+
+    fn ensure_only_one_bit_set(
+        response: &AlgorithmResponse,
+    ) -> Result<(), ReadError> {
+        match response {
+            AlgorithmResponse::Dhe(algo) => {
+                if algo.supported.bits().count_ones() != 1 {
+                    Self::too_many_bits()?;
                 }
-                AlgorithmRequest::Aead(algo) => {
-                    w.put(AeadAlgorithm::TYPE)?;
-                    w.put(AeadAlgorithm::FIXED_ALG_COUNT << 4)?;
-                    w.put_u16(algo.supported.bits())?;
+            }
+            AlgorithmResponse::Aead(algo) => {
+                if algo.supported.bits().count_ones() != 1 {
+                    Self::too_many_bits()?;
                 }
-                AlgorithmRequest::ReqBaseAsym(algo) => {
-                    w.put(ReqBaseAsymAlgorithm::TYPE)?;
-                    w.put(ReqBaseAsymAlgorithm::FIXED_ALG_COUNT << 4)?;
-                    w.put_u16(algo.supported.bits())?;
+            }
+            AlgorithmResponse::ReqBaseAsym(algo) => {
+                if algo.supported.bits().count_ones() != 1 {
+                    Self::too_many_bits()?;
                 }
-                AlgorithmRequest::KeySchedule(algo) => {
-                    w.put(KeyScheduleAlgorithm::TYPE)?;
-                    w.put(KeyScheduleAlgorithm::FIXED_ALG_COUNT << 4)?;
-                    w.put_u16(algo.supported.bits())?;
+            }
+            AlgorithmResponse::KeySchedule(algo) => {
+                if algo.supported.bits().count_ones() != 1 {
+                    Self::too_many_bits()?;
                 }
             }
         }
-        Ok(w.offset())
+        Ok(())
+    }
+
+    fn too_many_bits() -> Result<Algorithms, ReadError> {
+        Err(ReadError::new(Self::name(), ReadErrorKind::TooManyBitsSet))
     }
 }
