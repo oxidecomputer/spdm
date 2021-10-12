@@ -1,3 +1,4 @@
+pub mod algorithms;
 pub mod capabilities;
 pub mod encoding;
 pub mod version;

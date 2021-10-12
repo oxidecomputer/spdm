@@ -45,6 +45,16 @@ impl<'a> Writer<'a> {
         Ok(self.offset)
     }
 
+    // Write a u16 in little endian byte order
+    pub fn put_u16(&mut self, num: u16) -> Result<usize, WriteError> {
+        let buf = num.to_le_bytes();
+        for i in 0..2 {
+            self.put(buf[i])?;
+        }
+        Ok(self.offset)
+    }
+
+    // Write a u32 in little-endian byte order
     pub fn put_u32(&mut self, num: u32) -> Result<usize, WriteError> {
         let buf = num.to_le_bytes();
         for i in 0..4 {
@@ -75,18 +85,28 @@ pub enum ReadErrorKind {
     Empty,
     ReservedByteNotZero,
 
-    // An attempt to read one or more bytes not on a byte boundary
+    /// An attempt to read one or more bytes not on a byte boundary
     Unaligned,
 
-    // An attempt to read more than 7 bits in get_bits
+    /// An attempt to read more than 7 bits in get_bits
     TooManyBits,
     TooManyEntries,
 
-    // An attempt to convert a type via std::convert::TryInto failed. This should *never* happen.
+    /// An attempt to convert a type via std::convert::TryInto failed. This
+    /// should *never* happen.
     TypeConversionFailed,
 
-    // Bits not defined by bitflags were incorrectly set
+    /// Bits not defined by bitflags were incorrectly set
     InvalidBitsSet,
+
+    /// SPDM limits the values of some message fields
+    SpdmLimitReached,
+
+    /// Our implementation limits the value of some message fields
+    ImplementationLimitReached,
+
+    // A field in a SPDM message has an unexpected value
+    UnexpectedValue,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -131,6 +151,13 @@ impl<'a> Reader<'a> {
             if byte != 0 {
                 return Err(self.err(ReadErrorKind::ReservedByteNotZero));
             }
+        }
+        Ok(())
+    }
+
+    pub fn skip_ignored(&mut self, num_bytes: u8) -> Result<(), ReadError> {
+        for _ in 0..num_bytes {
+            self.get_byte()?;
         }
         Ok(())
     }
@@ -182,6 +209,23 @@ impl<'a> Reader<'a> {
         self.get_bits(1)
     }
 
+    // Read a u16 in little endian byte order
+    pub fn get_u16(&mut self) -> Result<u16, ReadError> {
+        if !self.is_aligned() {
+            return Err(self.err(ReadErrorKind::Unaligned));
+        }
+        if self.remaining() < 2 {
+            return Err(self.err(ReadErrorKind::Empty));
+        }
+        let pos = self.byte_offset;
+        let buf: &[u8; 2] = &self.buf[pos..pos + 2]
+            .try_into()
+            .map_err(|_| self.err(ReadErrorKind::TypeConversionFailed))?;
+        self.byte_offset += 2;
+        Ok(u16::from_le_bytes(*buf))
+    }
+
+    // Read a u32 in little endian byte order
     pub fn get_u32(&mut self) -> Result<u32, ReadError> {
         if !self.is_aligned() {
             return Err(self.err(ReadErrorKind::Unaligned));

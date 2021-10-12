@@ -63,6 +63,70 @@ impl GetCapabilities {
     }
 }
 
+bitflags! {
+    #[derive(Default)]
+    pub struct RspFlags: u32 {
+        const CACHE_CAP = 0b000_0001;
+        const CERT_CAP = 0b0000_0010;
+        const CHAL_CAP = 0b0000_0100;
+        const MEAS_CAP_NO_SIG = 0b0000_1000;
+        const MEAS_CAP_SIG = 0b0001_0000;
+        const MEAS_FRESH_CAP = 0b0010_0000;
+        const ENCRYPT_CAP = 0b0100_0000;
+        const MAC_CAP = 0b1000_0000;
+        const MUT_AUTH_CAP = 0b0000_0001_0000_0000;
+        const KEY_EX_CAP = 0b0000_0010_0000_0000;
+        const PSK_CAP = 0b0000_0100_0000_0000;
+        const PSX_CAP_WITH_CONTEXT = 0b0000_1000_0000_0000;
+        const ENCAP_CAP = 0b0001_0000_0000_0000;
+        const HBEAT_CAP = 0b0010_0000_0000_0000;
+        const KEY_UPD_CAP = 0b0100_0000_0000_0000;
+        const HANDSHAKE_IN_THE_CLEAR_CAP = 0b1000_0000_0000_0000;
+        const PUB_KEY_ID_CAP = 0b0000_0001_0000_0000_0000_0000;
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Capabilities {
+    pub ct_exponent: u8,
+    pub flags: RspFlags,
+}
+
+impl Msg for Capabilities {
+    fn name() -> &'static str {
+        "CAPABILITIES"
+    }
+
+    fn spdm_version() -> u8 {
+        0x11
+    }
+
+    fn spdm_code() -> u8 {
+        0x61
+    }
+
+    fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
+        w.put_reserved(3)?;
+        w.put(self.ct_exponent)?;
+        w.put_reserved(2)?;
+        w.put_u32(self.flags.bits())
+    }
+}
+
+impl Capabilities {
+    pub fn parse_body(buf: &[u8]) -> Result<Capabilities, ReadError> {
+        let mut reader = Reader::new(Self::name(), buf);
+        reader.skip_reserved(3)?;
+        let ct_exponent = reader.get_byte()?;
+        reader.skip_reserved(2)?;
+        let flags = reader.get_u32()?;
+        let flags = RspFlags::from_bits(flags).ok_or_else(|| {
+            ReadError::new(Self::name(), ReadErrorKind::InvalidBitsSet)
+        })?;
+        Ok(Capabilities { ct_exponent, flags })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
