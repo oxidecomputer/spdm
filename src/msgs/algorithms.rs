@@ -431,6 +431,7 @@ impl NegotiateAlgorithms {
 // The format is the same for both messages
 type AlgorithmResponse = AlgorithmRequest;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Algorithms {
     pub measurement_spec_selected: MeasurementSpec,
     pub measurement_hash_algo_selected: BaseHashAlgo,
@@ -637,6 +638,25 @@ mod tests {
         });
     }
 
+    // The difference between a request and response is that a response always
+    // only has one bit set. The responder makes a choice!
+    fn algo_responses(
+        responses: &mut [AlgorithmResponse; MAX_ALGORITHM_REQUESTS],
+    ) {
+        responses[0] = AlgorithmResponse::Dhe(DheAlgorithm {
+            supported: DheFixedAlgorithms::FFDHE_3072,
+        });
+        responses[1] = AlgorithmResponse::Aead(AeadAlgorithm {
+            supported: AeadFixedAlgorithms::AES_256_GCM,
+        });
+        responses[2] = AlgorithmResponse::ReqBaseAsym(ReqBaseAsymAlgorithm {
+            supported: ReqBaseAsymFixedAlgorithms::ECDSA_ECC_NIST_P384,
+        });
+        responses[3] = AlgorithmResponse::KeySchedule(KeyScheduleAlgorithm {
+            supported: KeyScheduleFixedAlgorithms::SPDM,
+        });
+    }
+
     fn negotiate_algo(
         requests: [AlgorithmRequest; MAX_ALGORITHM_REQUESTS],
     ) -> NegotiateAlgorithms {
@@ -647,6 +667,19 @@ mod tests {
             base_hash_algo: BaseHashAlgo::SHA_384 | BaseHashAlgo::SHA3_384,
             num_algorithm_requests: 4,
             algorithm_requests: requests,
+        }
+    }
+
+    fn algo(
+        responses: [AlgorithmResponse; MAX_ALGORITHM_REQUESTS],
+    ) -> Algorithms {
+        Algorithms {
+            measurement_spec_selected: MeasurementSpec::DMTF,
+            measurement_hash_algo_selected: BaseHashAlgo::SHA_384,
+            base_asym_algo_selected: BaseAsymAlgo::ECDSA_ECC_NIST_P256,
+            base_hash_algo_selected: BaseHashAlgo::SHA_384,
+            num_algorithm_responses: 4,
+            algorithm_responses: responses,
         }
     }
 
@@ -700,11 +733,43 @@ mod tests {
         let mut alg_struct = [0u8; ALG_STRUCT_SIZE];
         alg_struct
             .copy_from_slice(&buf[ORIG_OFFSET..ORIG_OFFSET + ALG_STRUCT_SIZE]);
-        let new_offset =
-            ORIG_OFFSET + EXT_ASYM_COUNT * 4 + EXT_HASH_COUNT * 4;
-        buf[new_offset..new_offset + ALG_STRUCT_SIZE].copy_from_slice(&alg_struct);
+        let new_offset = ORIG_OFFSET + EXT_ASYM_COUNT * 4 + EXT_HASH_COUNT * 4;
+        buf[new_offset..new_offset + ALG_STRUCT_SIZE]
+            .copy_from_slice(&alg_struct);
 
         let msg2 = NegotiateAlgorithms::parse_body(&buf[2..]).unwrap();
         assert_eq!(msg, msg2);
+    }
+
+    #[test]
+    fn algorithms_parses_correctly() {
+        let mut buf = [0u8; 128];
+        let mut responses =
+            [AlgorithmResponse::default(); MAX_ALGORITHM_REQUESTS];
+        algo_responses(&mut responses);
+        let msg = algo(responses);
+
+        assert_eq!(52, msg.write(&mut buf).unwrap());
+        assert_eq!(Ok(true), Algorithms::parse_header(&buf));
+
+        let msg2 = Algorithms::parse_body(&buf[2..]).unwrap();
+        assert_eq!(msg, msg2);
+    }
+
+    #[test]
+    fn algorithms_with_more_than_one_selection_fails_to_parse() {
+        let mut buf = [0u8; 128];
+        let mut responses =
+            [AlgorithmResponse::default(); MAX_ALGORITHM_REQUESTS];
+        algo_responses(&mut responses);
+        let mut msg = algo(responses);
+
+
+        // Patch the responses to have more than 1 bit set
+        algo_requests(&mut msg.algorithm_responses);
+
+        assert_eq!(52, msg.write(&mut buf).unwrap());
+        assert_eq!(Ok(true), Algorithms::parse_header(&buf));
+        assert!(Algorithms::parse_body(&buf[2..]).is_err());
     }
 }
