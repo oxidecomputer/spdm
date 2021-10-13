@@ -287,7 +287,7 @@ impl AlgorithmRequest {
 }
 
 /// This corresponds to the number of `RequestAlgorithm` variants
-const MAX_ALGORITHM_REQUESTS: usize = 4;
+pub const MAX_ALGORITHM_REQUESTS: usize = 4;
 
 /// For simplicity and expediency we don't support any extended algorithms yet
 /// in this implementation. This corresponds to the ExtAsym and ExtHash fields
@@ -429,7 +429,7 @@ impl NegotiateAlgorithms {
 }
 
 // The format is the same for both messages
-type AlgorithmResponse = AlgorithmRequest;
+pub type AlgorithmResponse = AlgorithmRequest;
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct Algorithms {
@@ -615,10 +615,10 @@ impl Algorithms {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
 
-    fn algo_requests(
+    pub fn algo_requests(
         requests: &mut [AlgorithmRequest; MAX_ALGORITHM_REQUESTS],
     ) {
         requests[0] = AlgorithmRequest::Dhe(DheAlgorithm {
@@ -640,7 +640,7 @@ mod tests {
 
     // The difference between a request and response is that a response always
     // only has one bit set. The responder makes a choice!
-    fn algo_responses(
+    pub fn algo_responses(
         responses: &mut [AlgorithmResponse; MAX_ALGORITHM_REQUESTS],
     ) {
         responses[0] = AlgorithmResponse::Dhe(DheAlgorithm {
@@ -657,7 +657,7 @@ mod tests {
         });
     }
 
-    fn negotiate_algo(
+    pub fn negotiate_algo(
         requests: [AlgorithmRequest; MAX_ALGORITHM_REQUESTS],
     ) -> NegotiateAlgorithms {
         NegotiateAlgorithms {
@@ -670,7 +670,7 @@ mod tests {
         }
     }
 
-    fn algo(
+    pub fn algo(
         responses: [AlgorithmResponse; MAX_ALGORITHM_REQUESTS],
     ) -> Algorithms {
         Algorithms {

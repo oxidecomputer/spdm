@@ -12,6 +12,9 @@ pub enum RequesterError {
     // Version related messages
     //
     NoSupportedVersions { received: Version },
+
+    // The responder chose an algorithm that was not a requester option
+    SelectedAlgorithmNotRequested
 }
 
 impl From<WriteError> for RequesterError {
