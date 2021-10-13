@@ -31,9 +31,7 @@ fn successful_version_negotiation() {
 
     // The responder transitions to CapabilitiesState
     assert_eq!(
-        responder::VersionTransition::Capabilities(
-            responder::CapabilitiesState::new()
-        ),
+            responder::capabilities::State::new(),
         transition
     );
 
