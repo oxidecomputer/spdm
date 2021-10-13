@@ -11,10 +11,15 @@
 mod capabilities;
 mod error;
 mod version;
+mod algorithms;
+mod responder_id_auth;
 
 pub use capabilities::CapabilitiesState;
 pub use error::RequesterError;
 pub use version::{VersionState, VersionTransition};
+pub use algorithms::AlgorithmsState;
+pub use responder_id_auth::ResponderIdAuthState;
+
 
 pub fn start() -> VersionState {
     VersionState {}

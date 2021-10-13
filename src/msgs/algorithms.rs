@@ -431,7 +431,7 @@ impl NegotiateAlgorithms {
 // The format is the same for both messages
 type AlgorithmResponse = AlgorithmRequest;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct Algorithms {
     pub measurement_spec_selected: MeasurementSpec,
     pub measurement_hash_algo_selected: BaseHashAlgo,

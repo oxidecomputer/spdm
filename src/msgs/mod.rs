@@ -6,6 +6,8 @@ pub mod version;
 use encoding::Writer;
 pub use encoding::{ReadError, ReadErrorKind, WriteError};
 pub use version::{GetVersion, Version, VersionEntry};
+pub use capabilities::{GetCapabilities, Capabilities};
+pub use algorithms::{NegotiateAlgorithms, Algorithms};
 
 pub const HEADER_SIZE: usize = 2;
 
