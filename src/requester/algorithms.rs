@@ -1,6 +1,6 @@
 use core::convert::From;
 
-use super::{CapabilitiesState, RequesterError, ResponderIdAuthState};
+use super::{capabilities, responder_id_auth, RequesterError};
 use crate::msgs::algorithms::{AlgorithmRequest, AlgorithmResponse};
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
 use crate::msgs::{
@@ -10,7 +10,7 @@ use crate::Transcript;
 
 // After capabilities negotiation, comes algorithm negotiation
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
-pub struct AlgorithmsState {
+pub struct State {
     pub version: VersionEntry,
     pub requester_ct_exponent: u8,
     pub requester_cap: ReqFlags,
@@ -20,9 +20,9 @@ pub struct AlgorithmsState {
     pub algorithms: Option<Algorithms>,
 }
 
-impl From<CapabilitiesState> for AlgorithmsState {
-    fn from(s: CapabilitiesState) -> Self {
-        AlgorithmsState {
+impl From<capabilities::State> for State {
+    fn from(s: capabilities::State) -> Self {
+        State {
             version: s.version,
             requester_ct_exponent: s.requester_ct_exponent.unwrap(),
             requester_cap: s.requester_cap.unwrap(),
@@ -34,7 +34,7 @@ impl From<CapabilitiesState> for AlgorithmsState {
     }
 }
 
-impl AlgorithmsState {
+impl State {
     pub fn write_msg(
         &mut self,
         msg: NegotiateAlgorithms,
@@ -52,7 +52,7 @@ impl AlgorithmsState {
         self,
         buf: &[u8],
         transcript: &mut Transcript,
-    ) -> Result<ResponderIdAuthState, RequesterError> {
+    ) -> Result<responder_id_auth::State, RequesterError> {
         match Algorithms::parse_header(buf) {
             Ok(true) => self.handle_algorithms(buf, transcript),
             Ok(false) => Err(RequesterError::UnexpectedMsg {
@@ -67,7 +67,7 @@ impl AlgorithmsState {
         mut self,
         buf: &[u8],
         transcript: &mut Transcript,
-    ) -> Result<ResponderIdAuthState, RequesterError> {
+    ) -> Result<responder_id_auth::State, RequesterError> {
         let algorithms = Algorithms::parse_body(&buf[HEADER_SIZE..])?;
         self.ensure_valid_algorithms_selected(&algorithms)?;
         self.algorithms = Some(algorithms);
@@ -185,14 +185,13 @@ mod tests {
     use crate::msgs::algorithms::tests;
     use crate::msgs::algorithms::*;
 
-    fn state_and_algorithms() -> (AlgorithmsState, Algorithms)
-    {
+    fn state_and_algorithms() -> (State, Algorithms) {
         let mut requests =
             [AlgorithmRequest::default(); MAX_ALGORITHM_REQUESTS];
         tests::algo_requests(&mut requests);
         let msg = tests::negotiate_algo(requests);
 
-        let state = AlgorithmsState {
+        let state = State {
             version: VersionEntry::default(),
             requester_ct_exponent: 0,
             requester_cap: ReqFlags::default(),
@@ -206,7 +205,7 @@ mod tests {
             [AlgorithmResponse::default(); MAX_ALGORITHM_REQUESTS];
         tests::algo_responses(&mut responses);
 
-        (state,  tests::algo(responses))
+        (state, tests::algo(responses))
     }
 
     #[test]
@@ -230,7 +229,9 @@ mod tests {
         let (state, mut algorithms) = state_and_algorithms();
 
         // This DHE algo was not part of the  `NegotiateAlgorithms` request.
-        if let AlgorithmResponse::Dhe(algo) = &mut algorithms.algorithm_responses[0] {
+        if let AlgorithmResponse::Dhe(algo) =
+            &mut algorithms.algorithm_responses[0]
+        {
             algo.supported = DheFixedAlgorithms::FFDHE_2048;
         } else {
             panic!();

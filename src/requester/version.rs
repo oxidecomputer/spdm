@@ -1,17 +1,13 @@
-use super::{CapabilitiesState, RequesterError};
+use super::{capabilities, RequesterError};
 use crate::msgs::{GetVersion, Msg, Version, VersionEntry, HEADER_SIZE};
 use crate::Transcript;
 
-/// The possible sef of state transitions out of the VersionState.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum VersionTransition {
-    Capabilities(CapabilitiesState),
-}
+
 
 /// A Requester starts in this state, where version negotiation is attempted.
-pub struct VersionState {}
+pub struct State{}
 
-impl VersionState {
+impl State {
     pub fn write_get_version(
         &self,
         buf: &mut [u8],
@@ -30,7 +26,7 @@ impl VersionState {
         self,
         buf: &[u8],
         transcript: &mut Transcript,
-    ) -> Result<VersionTransition, RequesterError> {
+    ) -> Result<capabilities::State, RequesterError> {
         match Version::parse_header(buf) {
             Ok(true) => self.handle_version(buf, transcript),
             Ok(false) => Err(RequesterError::UnexpectedMsg {
@@ -45,14 +41,13 @@ impl VersionState {
         self,
         buf: &[u8],
         transcript: &mut Transcript,
-    ) -> Result<VersionTransition, RequesterError> {
+    ) -> Result<capabilities::State, RequesterError> {
         let version = Version::parse_body(&buf[HEADER_SIZE..])?;
 
         if let Some(version_entry) = Self::find_max_matching_version(&version) {
             // SUCCESS!
             transcript.extend(buf)?;
-            let new_state = CapabilitiesState::new(version_entry);
-            Ok(VersionTransition::Capabilities(new_state))
+            Ok(capabilities::State::new(version_entry))
         } else {
             Err(RequesterError::NoSupportedVersions { received: version })
         }

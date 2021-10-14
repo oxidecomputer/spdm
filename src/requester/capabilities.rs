@@ -1,4 +1,4 @@
-use super::{AlgorithmsState, RequesterError};
+use super::{algorithms, RequesterError};
 use crate::msgs::{
     Capabilities, GetCapabilities, Msg, VersionEntry, HEADER_SIZE,
 };
@@ -7,7 +7,7 @@ use crate::Transcript;
 
 /// After version negotiation, capabilities are negotiated.
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
-pub struct CapabilitiesState {
+pub struct State {
     pub version: VersionEntry,
     pub requester_ct_exponent: Option<u8>,
     pub requester_cap: Option<ReqFlags>,
@@ -15,9 +15,9 @@ pub struct CapabilitiesState {
     pub responder_cap: Option<RspFlags>
 }
 
-impl CapabilitiesState {
-    pub fn new(version: VersionEntry) -> CapabilitiesState {
-        CapabilitiesState { version, ..Self::default() }
+impl State {
+    pub fn new(version: VersionEntry) -> State {
+        State { version, ..Self::default() }
     }
 
     /// Write the `msg` into `buf` and record it in `transcript`.
@@ -39,7 +39,7 @@ impl CapabilitiesState {
         self,
         buf: &[u8],
         transcript: &mut Transcript,
-    ) -> Result<AlgorithmsState, RequesterError> {
+    ) -> Result<algorithms::State, RequesterError> {
         match Capabilities::parse_header(buf) {
             Ok(true) => self.handle_capabilities(buf, transcript),
             Ok(false) => Err(RequesterError::UnexpectedMsg {
@@ -54,7 +54,7 @@ impl CapabilitiesState {
         mut self,
         buf: &[u8],
         transcript: &mut Transcript
-    ) -> Result<AlgorithmsState, RequesterError> {
+    ) -> Result<algorithms::State, RequesterError> {
         let capabilities = Capabilities::parse_body(&buf[HEADER_SIZE..])?;
 
         self.responder_ct_exponent = Some(capabilities.ct_exponent);

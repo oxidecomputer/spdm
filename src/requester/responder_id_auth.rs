@@ -1,12 +1,12 @@
 use core::convert::From;
 
-use super::{AlgorithmsState};
+use super::algorithms;
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
 use crate::msgs::{Algorithms, VersionEntry};
 
 // After the negotiation state, the requester has to identify the responder.
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
-pub struct ResponderIdAuthState {
+pub struct State {
     pub version: VersionEntry,
     pub requester_ct_exponent: u8,
     pub requester_cap: ReqFlags,
@@ -15,9 +15,9 @@ pub struct ResponderIdAuthState {
     pub algorithms: Algorithms
 }
 
-impl From<AlgorithmsState> for ResponderIdAuthState {
-    fn from(s: AlgorithmsState) -> Self {
-        ResponderIdAuthState {
+impl From<algorithms::State> for State {
+    fn from(s: algorithms::State) -> Self {
+        State {
             version: s.version,
             requester_ct_exponent: s.requester_ct_exponent,
             requester_cap: s.requester_cap,

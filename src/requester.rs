@@ -8,19 +8,14 @@
 //! mutable references, because we also want States to be Send, so we can use
 //! them in async code outside a no_std environment.
 
-mod capabilities;
+pub mod capabilities;
 mod error;
-mod version;
-mod algorithms;
-mod responder_id_auth;
+pub mod version;
+pub mod algorithms;
+pub mod responder_id_auth;
 
-pub use capabilities::CapabilitiesState;
 pub use error::RequesterError;
-pub use version::{VersionState, VersionTransition};
-pub use algorithms::AlgorithmsState;
-pub use responder_id_auth::ResponderIdAuthState;
 
-
-pub fn start() -> VersionState {
-    VersionState {}
+pub fn start() -> version::State {
+    version::State {}
 }
