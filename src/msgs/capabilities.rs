@@ -22,7 +22,7 @@ bitflags! {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct GetCapabilities {
     pub ct_exponent: u8,
     pub flags: ReqFlags,
@@ -86,7 +86,7 @@ bitflags! {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct Capabilities {
     pub ct_exponent: u8,
     pub flags: RspFlags,

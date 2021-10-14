@@ -2,6 +2,8 @@ use spdm::msgs::algorithms::*;
 use spdm::msgs::capabilities::{
     Capabilities, GetCapabilities, ReqFlags, RspFlags,
 };
+use spdm::msgs::GetVersion;
+use spdm::msgs::Msg;
 use spdm::requester;
 use spdm::responder;
 use spdm::{msgs, Transcript};
@@ -54,7 +56,7 @@ fn successful_negotiation() {
     let version =
         msgs::VersionEntry { major: 1, minor: 1, update: 0, alpha: 0 };
 
-    // Thre requester transitions to `capabilities::State`
+    // The requester transitions to `capabilities::State`
     assert_eq!(requester::capabilities::State::new(version), req_state);
 
     // The requester transcript matches the responder transcript
@@ -122,6 +124,8 @@ fn successful_negotiation() {
         .handle_msg(&rsp_buf[..rsp_size], &mut req_transcript)
         .unwrap();
 
+    // The requester transitions to `algorithms::State`
+
     assert!(matches!(req_state, requester::algorithms::State { .. }));
 
     assert_eq!(req_transcript, rsp_transcript);
@@ -130,6 +134,7 @@ fn successful_negotiation() {
      * ALGORITHMS NEGOTIATION
      */
 
+    // The requester describes its options for algorithms
     let req = NegotiateAlgorithms {
         measurement_spec: MeasurementSpec::DMTF,
         base_asym_algo: BaseAsymAlgo::ECDSA_ECC_NIST_P384,
@@ -177,8 +182,10 @@ fn successful_negotiation() {
 
     // One of the selected algorithms was chosen for each setting.
     // We prioritize the low order bit (for no good reason).
-    assert_eq!(req_state.algorithms.measurement_spec_selected,
-MeasurementSpec::DMTF);
+    assert_eq!(
+        req_state.algorithms.measurement_spec_selected,
+        MeasurementSpec::DMTF
+    );
     assert_eq!(
         req_state.algorithms.base_asym_algo_selected,
         BaseAsymAlgo::ECDSA_ECC_NIST_P384
@@ -205,14 +212,68 @@ MeasurementSpec::DMTF);
     ));
     assert!(matches!(
         req_state.algorithms.algorithm_responses[2],
-        AlgorithmResponse::ReqBaseAsym(ReqBaseAsymAlgorithm{
+        AlgorithmResponse::ReqBaseAsym(ReqBaseAsymAlgorithm {
             supported: ReqBaseAsymFixedAlgorithms::ECDSA_ECC_NIST_P256
         })
     ));
     assert!(matches!(
         req_state.algorithms.algorithm_responses[3],
-        AlgorithmResponse::KeySchedule(KeyScheduleAlgorithm{
+        AlgorithmResponse::KeySchedule(KeyScheduleAlgorithm {
             supported: KeyScheduleFixedAlgorithms::SPDM
         })
     ));
+}
+
+// A Responder will go back to `capabilities::State` if a requester sends a
+// GetVersion message in the middle of negotiation.
+//
+// The responder actually goes back to the `version::State` internally and
+// processes the message to transfer to the `capabilities::State`
+#[test]
+fn reset_to_capabilities_state_from_capabilities_state() {
+    let state = responder::capabilities::State::new();
+    let cap = Capabilities::default();
+
+    // Create necessary buffers
+    let mut req_buf = [0u8; 512];
+    let mut rsp_buf = [0u8; 512];
+    let mut rsp_transcript = Transcript::new();
+
+    // Serialize a GetVersion msg
+    let size = GetVersion {}.write(&mut req_buf).unwrap();
+
+    let (_, transition) = state
+        .handle_msg(cap, &req_buf[..size], &mut rsp_buf, &mut rsp_transcript)
+        .unwrap();
+
+    assert!(matches!(
+        transition,
+        responder::capabilities::Transition::Capabilities(_)
+    ));
+}
+
+// A Responder will go back to `capabilities::State` if a requester sends a
+// GetVersion message in the middle of negotiation.
+//
+// The responder actually goes back to the `version::State` internally and
+// processes the message to transfer to the `capabilities::State`
+#[test]
+fn reset_to_capabilities_state_from_algorithms_state() {
+    let state = responder::algorithms::State::default();
+
+    // Create necessary buffers
+    let mut req_buf = [0u8; 512];
+    let mut rsp_buf = [0u8; 512];
+    let mut rsp_transcript = Transcript::new();
+
+    // Serialize a GetVersion msg
+    let size = GetVersion {}.write(&mut req_buf).unwrap();
+
+    let (_, transition) = state
+        .handle_msg(&req_buf[..size], &mut rsp_buf, &mut rsp_transcript)
+        .unwrap();
+
+    assert!(matches!(
+        transition,
+        responder::algorithms::Transition::Capabilities(_)));
 }
