@@ -8,6 +8,7 @@ const TRANSCRIPT_SIZE: usize = 1024;
 /// A Transcript spans multiple states, and is purposefully kept outside those
 /// states to reduce the cost of the typestate pattern which takes and returns
 /// states by value.
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Transcript {
     buf: [u8; TRANSCRIPT_SIZE],
     offset: usize,
