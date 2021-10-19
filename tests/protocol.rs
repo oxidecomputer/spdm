@@ -1,55 +1,93 @@
+use spdm::config::{Config, MAX_CERT_CHAIN_SIZE, NUM_SLOTS};
+use spdm::crypto::digest::{Digest, RingDigest};
 use spdm::msgs::algorithms::*;
 use spdm::msgs::capabilities::{
     Capabilities, GetCapabilities, ReqFlags, RspFlags,
 };
+use spdm::msgs::digest::Digests;
 use spdm::msgs::GetVersion;
 use spdm::msgs::Msg;
 use spdm::requester;
 use spdm::responder;
 use spdm::{msgs, Transcript};
 
-#[test]
-fn successful_negotiation() {
+pub struct TestConfig {}
+
+impl Config for TestConfig {
+    type Digest = RingDigest;
+}
+
+const BUF_SIZE: usize = 2048;
+
+// Mutable data used by the requester and responder
+pub struct Data {
+    req_buf: [u8; BUF_SIZE],
+    rsp_buf: [u8; BUF_SIZE],
+    req_transcript: Transcript,
+    rsp_transcript: Transcript,
+}
+
+impl Data {
+    pub fn new() -> Data {
+        Data {
+            req_buf: [0u8; BUF_SIZE],
+            rsp_buf: [0u8; BUF_SIZE],
+            req_transcript: Transcript::new(),
+            rsp_transcript: Transcript::new(),
+        }
+    }
+}
+
+fn mock_cert_chains() -> [Vec<u8>; NUM_SLOTS] {
+    let mut cert_chains = [Vec::new(); NUM_SLOTS];
+    for i in 0..NUM_SLOTS {
+        if i % 2 == 0 {
+            cert_chains[i] = vec![i as u8; MAX_CERT_CHAIN_SIZE / (i + 1)];
+        }
+    }
+    cert_chains
+}
+
+// A successful version negotiation brings both requester and responder to
+// capabilities negotiation states.
+fn negotiate_versions(
+    data: &mut Data,
+) -> (requester::capabilities::State, responder::capabilities::State) {
     // Start the requester and responder state machines in VersionState.
     let req_state = requester::start();
     let rsp_state = responder::start();
 
-    // Create necessary buffers
-    let mut req_buf = [0u8; 512];
-    let mut rsp_buf = [0u8; 512];
-    let mut req_transcript = Transcript::new();
-    let mut rsp_transcript = Transcript::new();
-
-    /*
-     * VERSION NEGOTIATION
-     */
-
     // Create a version request and write it into the request buffer
-    let req_size =
-        req_state.write_get_version(&mut req_buf, &mut req_transcript).unwrap();
+    let req_size = req_state
+        .write_get_version(&mut data.req_buf, &mut data.req_transcript)
+        .unwrap();
 
     // The message is appended to the transcript
-    assert_eq!(&req_buf[..req_size], req_transcript.get());
+    assert_eq!(&data.req_buf[..req_size], data.req_transcript.get());
 
     // In a real system the messge would be sent over a transport.
     // Directly call the responder message handler here instead as if the
     // message was delivered. Message slices must be exact sized when calling
     // `handle_msg` methods.
     let (rsp_size, rsp_state) = rsp_state
-        .handle_msg(&req_buf[..req_size], &mut rsp_buf, &mut rsp_transcript)
+        .handle_msg(
+            &data.req_buf[..req_size],
+            &mut data.rsp_buf,
+            &mut data.rsp_transcript,
+        )
         .unwrap();
 
     // The responder transitions to `capabilities::State`
     assert_eq!(responder::capabilities::State::new(), rsp_state);
 
     // The request and response are appended to the transcript
-    assert_eq!(req_buf[..req_size], rsp_transcript.get()[..req_size]);
-    assert_eq!(rsp_buf[..rsp_size], rsp_transcript.get()[req_size..]);
-    assert_eq!(req_size + rsp_size, rsp_transcript.len());
+    assert_eq!(data.req_buf[..req_size], data.rsp_transcript.get()[..req_size]);
+    assert_eq!(data.rsp_buf[..rsp_size], data.rsp_transcript.get()[req_size..]);
+    assert_eq!(req_size + rsp_size, data.rsp_transcript.len());
 
     // Take the response and deliver it to the requester
-    let mut req_state = req_state
-        .handle_msg(&rsp_buf[..rsp_size], &mut req_transcript)
+    let req_state = req_state
+        .handle_msg(&data.rsp_buf[..rsp_size], &mut data.req_transcript)
         .unwrap();
 
     // We know the version
@@ -60,12 +98,18 @@ fn successful_negotiation() {
     assert_eq!(requester::capabilities::State::new(version), req_state);
 
     // The requester transcript matches the responder transcript
-    assert_eq!(req_transcript.get(), rsp_transcript.get());
+    assert_eq!(data.req_transcript.get(), data.rsp_transcript.get());
 
-    /*
-     * CAPABILITIES NEGOTIATION
-     */
+    (req_state, rsp_state)
+}
 
+// A successful capabilities negotiation brings both requester and responder to
+// algorithm negotiation states.
+fn negotiate_capabilities(
+    mut req_state: requester::capabilities::State,
+    rsp_state: responder::capabilities::State,
+    data: &mut Data,
+) -> (requester::algorithms::State, responder::algorithms::State) {
     // The requester defines its capabilities in the GetCapabilities msg.
     let req = GetCapabilities {
         ct_exponent: 12,
@@ -82,8 +126,9 @@ fn successful_negotiation() {
 
     // Serialize the GetCapabilities  message to send to the responder and
     // update the transcript.
-    let req_size =
-        req_state.write_msg(&req, &mut req_buf, &mut req_transcript).unwrap();
+    let req_size = req_state
+        .write_msg(&req, &mut data.req_buf, &mut data.req_transcript)
+        .unwrap();
 
     // The Responder defines its capabilities the `Capabilities` msg
     let rsp = Capabilities {
@@ -103,9 +148,9 @@ fn successful_negotiation() {
     let (rsp_size, transition) = rsp_state
         .handle_msg(
             rsp,
-            &req_buf[..req_size],
-            &mut rsp_buf,
-            &mut rsp_transcript,
+            &data.req_buf[..req_size],
+            &mut data.rsp_buf,
+            &mut data.rsp_transcript,
         )
         .unwrap();
 
@@ -120,20 +165,26 @@ fn successful_negotiation() {
         };
 
     // Deliver the response to the requester
-    let mut req_state = req_state
-        .handle_msg(&rsp_buf[..rsp_size], &mut req_transcript)
+    let req_state = req_state
+        .handle_msg(&data.rsp_buf[..rsp_size], &mut data.req_transcript)
         .unwrap();
 
     // The requester transitions to `algorithms::State`
 
     assert!(matches!(req_state, requester::algorithms::State { .. }));
 
-    assert_eq!(req_transcript, rsp_transcript);
+    assert_eq!(data.req_transcript, data.rsp_transcript);
 
-    /*
-     * ALGORITHMS NEGOTIATION
-     */
+    (req_state, rsp_state)
+}
 
+// A successful capabilities negotiation brings both requester and responder to
+// algorithm negotiation states.
+fn negotiate_algorithms(
+    mut req_state: requester::algorithms::State,
+    rsp_state: responder::algorithms::State,
+    data: &mut Data,
+) -> (requester::id_auth::State, responder::id_auth::State) {
     // The requester describes its options for algorithms
     let req = NegotiateAlgorithms {
         measurement_spec: MeasurementSpec::DMTF,
@@ -160,25 +211,38 @@ fn successful_negotiation() {
     };
 
     // Serialize the request
-    let req_size =
-        req_state.write_msg(req, &mut req_buf, &mut req_transcript).unwrap();
+    let req_size = req_state
+        .write_msg(req, &mut data.req_buf, &mut data.req_transcript)
+        .unwrap();
 
     // Deliver the request to the responder
     let (rsp_size, transition) = rsp_state
-        .handle_msg(&req_buf[..req_size], &mut rsp_buf, &mut rsp_transcript)
+        .handle_msg(
+            &data.req_buf[..req_size],
+            &mut data.rsp_buf,
+            &mut data.rsp_transcript,
+        )
         .unwrap();
 
     // The responder transitions to `requester_id_auth::State`
-    assert!(matches!(transition, responder::algorithms::Transition::IdAuth(_)));
+    let rsp_state =
+        if let responder::algorithms::Transition::IdAuth(state) = transition {
+            state
+        } else {
+            unreachable!();
+        };
 
     // Deliver the response to the requester.
     let req_state = req_state
-        .handle_msg(&rsp_buf[..rsp_size], &mut req_transcript)
+        .handle_msg::<NUM_SLOTS, MAX_CERT_CHAIN_SIZE>(
+            &data.rsp_buf[..rsp_size],
+            &mut data.req_transcript,
+        )
         .unwrap();
 
-    assert!(matches!(req_state, requester::responder_id_auth::State { .. }));
+    assert!(matches!(req_state, requester::id_auth::State { .. }));
 
-    assert_eq!(req_transcript, rsp_transcript);
+    assert_eq!(data.req_transcript, data.rsp_transcript);
 
     // One of the selected algorithms was chosen for each setting.
     // We prioritize the low order bit (for no good reason).
@@ -222,6 +286,120 @@ fn successful_negotiation() {
             supported: KeyScheduleFixedAlgorithms::SPDM
         })
     ));
+
+    (req_state, rsp_state)
+}
+
+fn identify_responder(
+    mut req_state: requester::id_auth::State,
+    rsp_state: responder::id_auth::State,
+    data: &mut Data,
+) {
+    // We expect the responder application to have a set of certs.
+    let stored_certs = mock_cert_chains();
+    let mut cert_chains: [Option<&[u8]>; NUM_SLOTS] = [None; NUM_SLOTS];
+    for (i, v) in stored_certs.iter().enumerate() {
+        if v.len() != 0 {
+            cert_chains[i] = Some(&v[..]);
+        }
+    }
+
+    // Generate the GET_DIGESTS request at the requester
+    let req_size = req_state
+        .write_get_digests_msg(&mut data.req_buf, &mut data.req_transcript)
+        .unwrap();
+
+    // Handle the GET_DIGESTS request at the responder
+    let (rsp_size, transition) = rsp_state
+        .handle_msg::<TestConfig>(
+            &cert_chains,
+            &data.req_buf[..req_size],
+            &mut data.rsp_buf,
+            &mut data.rsp_transcript,
+        )
+        .unwrap();
+
+    // Unpack the current state from the state transition
+    let rsp_state =
+        if let responder::id_auth::Transition::IdAuth(rsp_state) = transition {
+            rsp_state
+        } else {
+            unreachable!();
+        };
+
+    // Handle the DIGESTS response at the requester
+    req_state
+        .handle_digests(&data.rsp_buf[..rsp_size], &mut data.req_transcript)
+        .unwrap();
+
+    assert_eq!(data.req_transcript.get(), data.rsp_transcript.get());
+
+    // The responder creates and sends a digest for each cert chain that exists
+    assert_digests_match_cert_chains(
+        req_state.algorithms.base_hash_algo_selected,
+        &cert_chains,
+        &req_state.digests.as_ref().unwrap(),
+    );
+
+    // Get the first cert chain (slot 0 always exists)
+    let slot = 0;
+    let req_size = req_state
+        .write_get_certificate_msg(
+            slot,
+            &mut data.req_buf,
+            &mut data.req_transcript,
+        )
+        .unwrap();
+
+    // Handle the GET_CERTIFICATE request at the responder
+    let (rsp_size, _rsp_state) = rsp_state
+        .handle_msg::<TestConfig>(
+            &cert_chains,
+            &data.req_buf[..req_size],
+            &mut data.rsp_buf,
+            &mut data.rsp_transcript,
+        )
+        .unwrap();
+
+    // Handle the CERTIFICATE response at the requester
+    req_state
+        .handle_certificate(&data.rsp_buf[..rsp_size], &mut data.req_transcript)
+        .unwrap();
+
+    assert_eq!(data.req_transcript.get(), data.rsp_transcript.get());
+}
+
+// Verify that there is a proper digest for each cert chain
+fn assert_digests_match_cert_chains(
+    hash_algo: BaseHashAlgo,
+    cert_chains: &[Option<&[u8]>; NUM_SLOTS],
+    digests: &Digests<NUM_SLOTS>,
+) {
+    for (i, (chain, digest)) in
+        cert_chains.iter().zip(digests.digests).enumerate()
+    {
+        // Is there a digest for the given slot
+        if (1 << i as u8) & digests.slot_mask != 0 {
+            let expected =
+                <TestConfig as Config>::Digest::hash(hash_algo, chain.unwrap());
+            let len = expected.as_ref().len();
+            assert_eq!(digest.as_slice(len), expected.as_ref());
+        } else {
+            assert!(chain.is_none());
+        }
+    }
+}
+
+#[test]
+fn successful_negotiation() {
+    let mut data = Data::new();
+
+    let (req_state, rsp_state) = negotiate_versions(&mut data);
+    let (req_state, rsp_state) =
+        negotiate_capabilities(req_state, rsp_state, &mut data);
+    let (req_state, rsp_state) =
+        negotiate_algorithms(req_state, rsp_state, &mut data);
+    identify_responder(req_state, rsp_state, &mut data);
 }
 
 // A Responder will go back to `capabilities::State` if a requester sends a
@@ -275,5 +453,6 @@ fn reset_to_capabilities_state_from_algorithms_state() {
 
     assert!(matches!(
         transition,
-        responder::algorithms::Transition::Capabilities(_)));
+        responder::algorithms::Transition::Capabilities(_)
+    ));
 }

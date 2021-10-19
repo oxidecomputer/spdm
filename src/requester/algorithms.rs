@@ -1,6 +1,6 @@
 use core::convert::From;
 
-use super::{capabilities, responder_id_auth, RequesterError};
+use super::{capabilities, id_auth, RequesterError, expect};
 use crate::msgs::algorithms::{AlgorithmRequest, AlgorithmResponse};
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
 use crate::msgs::{
@@ -48,26 +48,12 @@ impl State {
     }
 
     /// Only `Algorithms` messsages are acceptable here.
-    pub fn handle_msg(
-        self,
-        buf: &[u8],
-        transcript: &mut Transcript,
-    ) -> Result<responder_id_auth::State, RequesterError> {
-        match Algorithms::parse_header(buf) {
-            Ok(true) => self.handle_algorithms(buf, transcript),
-            Ok(false) => Err(RequesterError::UnexpectedMsg {
-                expected: Algorithms::name(),
-                got: buf[0],
-            }),
-            Err(e) => Err(e.into()),
-        }
-    }
-
-    pub fn handle_algorithms(
+    pub fn handle_msg<const NUM_SLOTS: usize, const CERT_CHAIN_SIZE: usize>(
         mut self,
         buf: &[u8],
         transcript: &mut Transcript,
-    ) -> Result<responder_id_auth::State, RequesterError> {
+    ) -> Result<id_auth::State, RequesterError> {
+        expect::<Algorithms>(buf)?;
         let algorithms = Algorithms::parse_body(&buf[HEADER_SIZE..])?;
         self.ensure_valid_algorithms_selected(&algorithms)?;
         self.algorithms = Some(algorithms);

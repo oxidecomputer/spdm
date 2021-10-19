@@ -1,8 +1,10 @@
 #![forbid(unsafe_code)]
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 
 pub mod requester;
 pub mod responder;
+pub mod crypto;
+pub mod config;
 
 pub mod msgs;
 pub(crate) mod transcript;

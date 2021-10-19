@@ -17,9 +17,7 @@ impl Msg for GetVersion {
     }
 
     fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
-        // Reserved bytes
-        w.put(0)?;
-        w.put(0)
+        w.put_reserved(2)
     }
 }
 

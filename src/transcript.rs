@@ -1,6 +1,5 @@
 use crate::msgs::WriteError;
-
-const TRANSCRIPT_SIZE: usize = 1024;
+use crate::config::TRANSCRIPT_SIZE;
 
 /// A `Transcript` is used to track contigous operations for measurement
 /// purposes.

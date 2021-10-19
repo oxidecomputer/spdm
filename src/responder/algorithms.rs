@@ -1,13 +1,13 @@
-use super::{capabilities, requester_id_auth, version, ResponderError};
+use super::{capabilities, expect, id_auth, ResponderError};
 use crate::msgs::algorithms::*;
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
-use crate::msgs::{Msg, GetVersion, HEADER_SIZE};
-use crate::Transcript;
+use crate::msgs::{Msg, HEADER_SIZE};
+use crate::{Transcript, reset_on_get_version};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Transition {
     Capabilities(capabilities::State),
-    IdAuth(requester_id_auth::State),
+    IdAuth(id_auth::State),
 }
 
 // Algorithms are selected after capability negotiation.
@@ -35,51 +35,14 @@ impl From<capabilities::State> for State {
 impl State {
     /// GetVersion and NegotiateAlgorithms messages are valid here.
     pub fn handle_msg(
-        self,
-        req: &[u8],
-        rsp: &mut [u8],
-        transcript: &mut Transcript,
-    ) -> Result<(usize, Transition), ResponderError> {
-        match GetVersion::parse_header(req) {
-            Ok(true) => return self.handle_get_version(req, rsp, transcript),
-            Err(e) => return Err(e.into()),
-            _ => (),
-        }
-
-        match NegotiateAlgorithms::parse_header(req) {
-            Ok(true) => {
-                self.handle_negotiate_algorithms(req, rsp, transcript)
-            }
-            Ok(false) => Err(ResponderError::UnexpectedMsg {
-                expected: NegotiateAlgorithms::name(),
-                got: req[0],
-            }),
-            Err(e) => Err(e.into()),
-        }
-    }
-
-    // TODO: This is the same in all states except version state. The only
-    // difference is the return value `Transition` wrapper. It would be nice to
-    // dedup it somehow.
-    fn handle_get_version(
-        self,
-        req: &[u8],
-        rsp: &mut [u8],
-        transcript: &mut Transcript,
-    ) -> Result<(usize, Transition), ResponderError> {
-        // Go back to the beginning!
-        let (size, cap_state) =
-            version::State {}.handle_msg(req, rsp, transcript)?;
-
-        Ok((size, Transition::Capabilities(cap_state)))
-    }
-
-    fn handle_negotiate_algorithms(
         mut self,
         req: &[u8],
         rsp: &mut [u8],
         transcript: &mut Transcript,
     ) -> Result<(usize, Transition), ResponderError> {
+        reset_on_get_version!(req, rsp, transcript);
+        expect::<NegotiateAlgorithms>(req)?;
+
         let req_msg = NegotiateAlgorithms::parse_body(&req[HEADER_SIZE..])?;
         transcript.extend(req)?;
 
