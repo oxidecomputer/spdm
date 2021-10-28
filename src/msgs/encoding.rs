@@ -37,7 +37,9 @@ impl<'a> Writer<'a> {
     }
 
     /// Append a 0 byte onto the buffer.
-    /// This is a first class method, because the protocol has so many skip_reserved bytes.
+    ///
+    /// This is a first class method because the protocol has so many
+    /// reserved bytes.
     pub fn put_reserved(&mut self, num_bytes: u8) -> Result<usize, WriteError> {
         for _ in 0..num_bytes {
             self.put(0)?;
@@ -61,6 +63,18 @@ impl<'a> Writer<'a> {
             self.put(buf[i])?;
         }
         Ok(self.offset)
+    }
+
+    // Append a slice onto the buffer
+    pub fn extend(&mut self, buf: &[u8]) -> Result<usize, WriteError> {
+        if buf.len() > self.remaining() {
+            Err(WriteError::new(self.msg, self.buf.len()))
+        } else {
+            let end = self.offset + buf.len();
+            self.buf[self.offset..end].copy_from_slice(buf);
+            self.offset = end;
+            Ok(self.offset)
+        }
     }
 
     /// Return true if the buffer is full, false otherwise.
@@ -212,7 +226,9 @@ impl<'a> Reader<'a> {
         self.get_bits(1)
     }
 
-    // Read a u16 in little endian byte order
+    /// Read a u16 in little endian byte order
+    ///
+    /// This only works on aligned reads.
     pub fn get_u16(&mut self) -> Result<u16, ReadError> {
         if !self.is_aligned() {
             return Err(self.err(ReadErrorKind::Unaligned));
@@ -228,7 +244,26 @@ impl<'a> Reader<'a> {
         Ok(u16::from_le_bytes(*buf))
     }
 
-    // Read a u32 in little endian byte order
+    /// Return a slice and advance the cursor.
+    ///
+    /// This only works for aligned reads.
+    pub fn get_slice(&mut self, size: usize) -> Result<&[u8], ReadError> {
+        if !self.is_aligned() {
+            return Err(self.err(ReadErrorKind::Unaligned));
+        }
+
+        if self.remaining() < size {
+            return Err(self.err(ReadErrorKind::Empty));
+        }
+
+        let start = self.byte_offset;
+        self.byte_offset += size;
+        Ok(&self.buf[start..self.byte_offset])
+    }
+
+    /// Read a u32 in little endian byte order
+    ///
+    /// This only works on aligned reads.
     pub fn get_u32(&mut self) -> Result<u32, ReadError> {
         if !self.is_aligned() {
             return Err(self.err(ReadErrorKind::Unaligned));

@@ -1,11 +1,9 @@
-use super::{capabilities, RequesterError};
+use super::{capabilities,  RequesterError, expect};
 use crate::msgs::{GetVersion, Msg, Version, VersionEntry, HEADER_SIZE};
 use crate::Transcript;
 
-
-
 /// A Requester starts in this state, where version negotiation is attempted.
-pub struct State{}
+pub struct State {}
 
 impl State {
     pub fn write_get_version(
@@ -27,21 +25,7 @@ impl State {
         buf: &[u8],
         transcript: &mut Transcript,
     ) -> Result<capabilities::State, RequesterError> {
-        match Version::parse_header(buf) {
-            Ok(true) => self.handle_version(buf, transcript),
-            Ok(false) => Err(RequesterError::UnexpectedMsg {
-                expected: Version::name(),
-                got: buf[0],
-            }),
-            Err(e) => Err(e.into()),
-        }
-    }
-
-    fn handle_version(
-        self,
-        buf: &[u8],
-        transcript: &mut Transcript,
-    ) -> Result<capabilities::State, RequesterError> {
+        expect::<Version>(buf)?;
         let version = Version::parse_body(&buf[HEADER_SIZE..])?;
 
         if let Some(version_entry) = Self::find_max_matching_version(&version) {
@@ -74,4 +58,5 @@ impl State {
             Some(found)
         }
     }
+
 }
