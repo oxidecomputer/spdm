@@ -6,17 +6,11 @@ use super::Msg;
 pub struct GetDigests {}
 
 impl Msg for GetDigests {
-    fn name() -> &'static str {
-        "GET_DIGESTS"
-    }
+    const NAME: &'static str = "GET_DIGESTS";
 
-    fn spdm_version() -> u8 {
-        0x11
-    }
+    const SPDM_VERSION: u8 = 0x11;
 
-    fn spdm_code() -> u8 {
-        0x81
-    }
+    const SPDM_CODE: u8 = 0x81;
 
     fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
         w.put_reserved(2)
@@ -25,7 +19,7 @@ impl Msg for GetDigests {
 
 impl GetDigests {
     pub fn parse_body(buf: &[u8]) -> Result<GetDigests, ReadError> {
-        let mut reader = Reader::new(Self::name(), buf);
+        let mut reader = Reader::new(Self::NAME, buf);
         reader.skip_reserved(2)?;
         Ok(GetDigests {})
     }
@@ -82,17 +76,11 @@ impl<const NUM_SLOTS: usize> PartialEq for Digests<NUM_SLOTS> {
 impl<const NUM_SLOTS: usize> Eq for Digests<NUM_SLOTS> {}
 
 impl<const NUM_SLOTS: usize> Msg for Digests<NUM_SLOTS> {
-    fn name() -> &'static str {
-        "DIGESTS"
-    }
+    const NAME: &'static str = "DIGESTS";
 
-    fn spdm_version() -> u8 {
-        0x11
-    }
+    const SPDM_VERSION: u8 = 0x11;
 
-    fn spdm_code() -> u8 {
-        0x01
-    }
+    const SPDM_CODE: u8 = 0x01;
 
     fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
         w.put_reserved(1)?;
@@ -108,7 +96,7 @@ impl<const NUM_SLOTS: usize> Digests<NUM_SLOTS> {
         buf: &[u8],
     ) -> Result<Digests<NUM_SLOTS>, ReadError> {
         assert!(digest_size == 32 || digest_size == 48 || digest_size == 64);
-        let mut r = Reader::new(Self::name(), buf);
+        let mut r = Reader::new(Self::NAME, buf);
         r.skip_reserved(1)?;
         let slot_mask = r.get_byte()?;
         Self::read_digests(slot_mask, digest_size, &mut r)

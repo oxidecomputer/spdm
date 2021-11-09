@@ -57,7 +57,7 @@ pub fn expect<T: Msg>(buf: &[u8]) -> Result<(), ResponderError> {
     match T::parse_header(buf) {
         Ok(true) => Ok(()),
         Ok(false) => Err(ResponderError::UnexpectedMsg {
-            expected: T::name(),
+            expected: T::NAME,
             got: buf[0],
         }),
         Err(e) => Err(e.into()),

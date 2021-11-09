@@ -81,7 +81,7 @@ impl State {
         let get_cert = GetCertificate::parse_body(&req[HEADER_SIZE..])?;
         if get_cert.slot as usize >= NUM_SLOTS {
             return Err(ReadError::new(
-                GetCertificate::name(),
+                GetCertificate::NAME,
                 ReadErrorKind::ImplementationLimitReached,
             ).into());
         }

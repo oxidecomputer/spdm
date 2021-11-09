@@ -17,9 +17,10 @@ pub const HEADER_SIZE: usize = 2;
 
 pub trait Msg {
     // Names should be written as in the spec (UPPER_SNAKE_CASE).
-    fn name() -> &'static str;
-    fn spdm_version() -> u8;
-    fn spdm_code() -> u8;
+    const NAME: &'static str;
+    const SPDM_VERSION: u8;
+    const SPDM_CODE: u8;
+
     fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError>;
 
     /// Parse the 2 byte message header and ensure the version field is
@@ -32,25 +33,25 @@ pub trait Msg {
     /// Prerequisite buf >= 2 bytes
     fn parse_header(buf: &[u8]) -> Result<bool, ReadError> {
         assert!(buf.len() > 2);
-        if buf[1] != Self::spdm_code() {
+        if buf[1] != Self::SPDM_CODE {
             Ok(false)
         } else {
-            if buf[0] == Self::spdm_version() {
+            if buf[0] == Self::SPDM_VERSION {
                 Ok(true)
             } else {
-                Err(ReadError::new(Self::name(), ReadErrorKind::Header))
+                Err(ReadError::new(Self::NAME, ReadErrorKind::Header))
             }
         }
     }
 
     fn write(&self, buf: &mut [u8]) -> Result<usize, WriteError> {
-        let mut w = Writer::new(Self::name(), buf);
+        let mut w = Writer::new(Self::NAME, buf);
         Self::write_header(&mut w)?;
         self.write_body(&mut w)
     }
 
     fn write_header(w: &mut Writer) -> Result<usize, WriteError> {
-        w.put(Self::spdm_version())?;
-        w.put(Self::spdm_code())
+        w.put(Self::SPDM_VERSION)?;
+        w.put(Self::SPDM_CODE)
     }
 }

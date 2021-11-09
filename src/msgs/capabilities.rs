@@ -29,17 +29,11 @@ pub struct GetCapabilities {
 }
 
 impl Msg for GetCapabilities {
-    fn name() -> &'static str {
-        "GET_CAPABILITIES"
-    }
+    const NAME: &'static str = "GET_CAPABILITIES";
 
-    fn spdm_version() -> u8 {
-        0x11
-    }
+    const SPDM_VERSION: u8 = 0x11;
 
-    fn spdm_code() -> u8 {
-        0xE1
-    }
+    const SPDM_CODE: u8 = 0xE1;
 
     fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
         w.put_reserved(3)?;
@@ -51,13 +45,13 @@ impl Msg for GetCapabilities {
 
 impl GetCapabilities {
     pub fn parse_body(buf: &[u8]) -> Result<GetCapabilities, ReadError> {
-        let mut reader = Reader::new(Self::name(), buf);
+        let mut reader = Reader::new(Self::NAME, buf);
         reader.skip_reserved(3)?;
         let ct_exponent = reader.get_byte()?;
         reader.skip_reserved(2)?;
         let flags = reader.get_u32()?;
         let flags = ReqFlags::from_bits(flags).ok_or_else(|| {
-            ReadError::new(Self::name(), ReadErrorKind::InvalidBitsSet)
+            ReadError::new(Self::NAME, ReadErrorKind::InvalidBitsSet)
         })?;
         Ok(GetCapabilities { ct_exponent, flags })
     }
@@ -93,17 +87,11 @@ pub struct Capabilities {
 }
 
 impl Msg for Capabilities {
-    fn name() -> &'static str {
-        "CAPABILITIES"
-    }
+    const NAME: &'static str = "CAPABILITIES";
 
-    fn spdm_version() -> u8 {
-        0x11
-    }
+    const SPDM_VERSION: u8 = 0x11;
 
-    fn spdm_code() -> u8 {
-        0x61
-    }
+    const SPDM_CODE: u8 = 0x61;
 
     fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
         w.put_reserved(3)?;
@@ -115,13 +103,13 @@ impl Msg for Capabilities {
 
 impl Capabilities {
     pub fn parse_body(buf: &[u8]) -> Result<Capabilities, ReadError> {
-        let mut reader = Reader::new(Self::name(), buf);
+        let mut reader = Reader::new(Self::NAME, buf);
         reader.skip_reserved(3)?;
         let ct_exponent = reader.get_byte()?;
         reader.skip_reserved(2)?;
         let flags = reader.get_u32()?;
         let flags = RspFlags::from_bits(flags).ok_or_else(|| {
-            ReadError::new(Self::name(), ReadErrorKind::InvalidBitsSet)
+            ReadError::new(Self::NAME, ReadErrorKind::InvalidBitsSet)
         })?;
         Ok(Capabilities { ct_exponent, flags })
     }
