@@ -4,17 +4,11 @@ use super::Msg;
 pub struct GetVersion {}
 
 impl Msg for GetVersion {
-    fn name() -> &'static str {
-        "GET_VERSION"
-    }
+    const NAME: &'static str = "GET_VERSION";
 
-    fn spdm_version() -> u8 {
-        0x10
-    }
+    const SPDM_VERSION: u8 = 0x10;
 
-    fn spdm_code() -> u8 {
-        0x84
-    }
+    const SPDM_CODE: u8 = 0x84;
 
     fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
         w.put_reserved(2)
@@ -23,7 +17,7 @@ impl Msg for GetVersion {
 
 impl GetVersion {
     pub fn parse_body(buf: &[u8]) -> Result<GetVersion, ReadError> {
-        let mut reader = Reader::new(Self::name(), buf);
+        let mut reader = Reader::new(Self::NAME, buf);
         reader.skip_reserved(2)?;
         Ok(GetVersion {})
     }
@@ -69,17 +63,11 @@ impl Default for Version {
 }
 
 impl Msg for Version {
-    fn name() -> &'static str {
-        "VERSION"
-    }
+    const NAME: &'static str = "VERSION";
 
-    fn spdm_version() -> u8 {
-        0x10
-    }
+    const SPDM_VERSION: u8 = 0x10;
 
-    fn spdm_code() -> u8 {
-        0x04
-    }
+    const SPDM_CODE: u8 = 0x04;
 
     fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
         // Reserved bytes
@@ -100,7 +88,7 @@ impl Msg for Version {
 
 impl Version {
     pub fn parse_body(buf: &[u8]) -> Result<Version, ReadError> {
-        let mut reader = Reader::new(Self::name(), buf);
+        let mut reader = Reader::new(Self::NAME, buf);
 
         reader.skip_reserved(3)?;
 
@@ -108,7 +96,7 @@ impl Version {
         let num_entries = reader.get_byte()?;
         if num_entries > MAX_ALLOWED_VERSIONS {
             return Err(ReadError::new(
-                Self::name(),
+                Self::NAME,
                 ReadErrorKind::TooManyEntries,
             ));
         }

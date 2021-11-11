@@ -302,17 +302,11 @@ pub struct NegotiateAlgorithms {
 }
 
 impl Msg for NegotiateAlgorithms {
-    fn name() -> &'static str {
-        "NEGOTIATE_ALGORITHMS"
-    }
+    const NAME: &'static str = "NEGOTIATE_ALGORITHMS";
 
-    fn spdm_version() -> u8 {
-        0x11
-    }
+    const SPDM_VERSION: u8 = 0x11;
 
-    fn spdm_code() -> u8 {
-        0xE3
-    }
+    const SPDM_CODE: u8 = 0xE3;
 
     fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
         w.put(self.num_algorithm_requests)?;
@@ -332,11 +326,11 @@ impl Msg for NegotiateAlgorithms {
 
 impl NegotiateAlgorithms {
     pub fn parse_body(buf: &[u8]) -> Result<NegotiateAlgorithms, ReadError> {
-        let mut r = Reader::new(Self::name(), buf);
+        let mut r = Reader::new(Self::NAME, buf);
         let num_requests = r.get_byte()?;
         if num_requests as usize > MAX_ALGORITHM_REQUESTS {
             return Err(ReadError::new(
-                Self::name(),
+                Self::NAME,
                 ReadErrorKind::ImplementationLimitReached,
             ));
         }
@@ -347,14 +341,14 @@ impl NegotiateAlgorithms {
         let length = r.get_u16()?;
         if length > 128 {
             return Err(ReadError::new(
-                Self::name(),
+                Self::NAME,
                 ReadErrorKind::SpdmLimitReached,
             ));
         }
         let spec = r.get_byte()?;
         let measurement_spec =
             MeasurementSpec::from_bits(spec).ok_or_else(|| {
-                ReadError::new(Self::name(), ReadErrorKind::InvalidBitsSet)
+                ReadError::new(Self::NAME, ReadErrorKind::InvalidBitsSet)
             })?;
 
         r.skip_reserved(1)?;
@@ -362,13 +356,13 @@ impl NegotiateAlgorithms {
         let algo = r.get_u32()?;
         let base_asym_algo =
             BaseAsymAlgo::from_bits(algo).ok_or_else(|| {
-                ReadError::new(Self::name(), ReadErrorKind::InvalidBitsSet)
+                ReadError::new(Self::NAME, ReadErrorKind::InvalidBitsSet)
             })?;
 
         let algo = r.get_u32()?;
         let base_hash_algo =
             BaseHashAlgo::from_bits(algo).ok_or_else(|| {
-                ReadError::new(Self::name(), ReadErrorKind::InvalidBitsSet)
+                ReadError::new(Self::NAME, ReadErrorKind::InvalidBitsSet)
             })?;
 
         r.skip_reserved(12)?;
@@ -404,7 +398,7 @@ impl NegotiateAlgorithms {
         requests: &mut [AlgorithmRequest; MAX_ALGORITHM_REQUESTS],
     ) -> Result<(), ReadError> {
         for i in 0..num_requests as usize {
-            requests[i] = AlgorithmRequest::read(Self::name(), r)?;
+            requests[i] = AlgorithmRequest::read(Self::NAME, r)?;
         }
         Ok(())
     }
@@ -442,17 +436,11 @@ pub struct Algorithms {
 }
 
 impl Msg for Algorithms {
-    fn name() -> &'static str {
-        "ALGORITHMS"
-    }
+    const NAME: &'static str = "ALGORITHMS";
 
-    fn spdm_version() -> u8 {
-        0x11
-    }
+    const SPDM_VERSION: u8 = 0x11;
 
-    fn spdm_code() -> u8 {
-        0x63
-    }
+    const SPDM_CODE: u8 = 0x63;
 
     fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
         w.put(self.num_algorithm_responses)?;
@@ -477,11 +465,11 @@ impl Msg for Algorithms {
 
 impl Algorithms {
     pub fn parse_body(buf: &[u8]) -> Result<Algorithms, ReadError> {
-        let mut r = Reader::new(Self::name(), buf);
+        let mut r = Reader::new(Self::NAME, buf);
         let num_responses = r.get_byte()?;
         if num_responses as usize > MAX_ALGORITHM_REQUESTS {
             return Err(ReadError::new(
-                Self::name(),
+                Self::NAME,
                 ReadErrorKind::ImplementationLimitReached,
             ));
         }
@@ -494,7 +482,7 @@ impl Algorithms {
         let selection = r.get_byte()?;
         let measurement_spec_selected = MeasurementSpec::from_bits(selection)
             .ok_or_else(|| {
-            ReadError::new(Self::name(), ReadErrorKind::InvalidBitsSet)
+            ReadError::new(Self::NAME, ReadErrorKind::InvalidBitsSet)
         })?;
         if measurement_spec_selected.bits().count_ones() != 1 {
             return Self::too_many_bits();
@@ -505,7 +493,7 @@ impl Algorithms {
         let selection = r.get_u32()?;
         let measurement_hash_algo_selected = BaseHashAlgo::from_bits(selection)
             .ok_or_else(|| {
-                ReadError::new(Self::name(), ReadErrorKind::InvalidBitsSet)
+                ReadError::new(Self::NAME, ReadErrorKind::InvalidBitsSet)
             })?;
         if measurement_hash_algo_selected.bits().count_ones() != 1 {
             return Self::too_many_bits();
@@ -514,7 +502,7 @@ impl Algorithms {
         let selection = r.get_u32()?;
         let base_asym_algo_selected = BaseAsymAlgo::from_bits(selection)
             .ok_or_else(|| {
-                ReadError::new(Self::name(), ReadErrorKind::InvalidBitsSet)
+                ReadError::new(Self::NAME, ReadErrorKind::InvalidBitsSet)
             })?;
         if base_asym_algo_selected.bits().count_ones() != 1 {
             return Self::too_many_bits();
@@ -523,7 +511,7 @@ impl Algorithms {
         let selection = r.get_u32()?;
         let base_hash_algo_selected = BaseHashAlgo::from_bits(selection)
             .ok_or_else(|| {
-                ReadError::new(Self::name(), ReadErrorKind::InvalidBitsSet)
+                ReadError::new(Self::NAME, ReadErrorKind::InvalidBitsSet)
             })?;
         if base_hash_algo_selected.bits().count_ones() != 1 {
             return Self::too_many_bits();
@@ -575,7 +563,7 @@ impl Algorithms {
         responses: &mut [AlgorithmResponse; MAX_ALGORITHM_REQUESTS],
     ) -> Result<(), ReadError> {
         for i in 0..num_responses as usize {
-            responses[i] = AlgorithmResponse::read(Self::name(), r)?;
+            responses[i] = AlgorithmResponse::read(Self::NAME, r)?;
             Self::ensure_only_one_bit_set(&responses[i])?;
         }
         Ok(())
@@ -610,7 +598,7 @@ impl Algorithms {
     }
 
     fn too_many_bits() -> Result<Algorithms, ReadError> {
-        Err(ReadError::new(Self::name(), ReadErrorKind::TooManyBitsSet))
+        Err(ReadError::new(Self::NAME, ReadErrorKind::TooManyBitsSet))
     }
 }
 

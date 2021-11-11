@@ -9,17 +9,11 @@ pub struct GetCertificate {
 }
 
 impl Msg for GetCertificate {
-    fn name() -> &'static str {
-        "GET_CERTIFICATE"
-    }
+    const NAME: &'static str = "GET_CERTIFICATE";
 
-    fn spdm_version() -> u8 {
-        0x11
-    }
+    const SPDM_VERSION: u8 = 0x11;
 
-    fn spdm_code() -> u8 {
-        0x82
-    }
+    const SPDM_CODE: u8 = 0x82;
 
     fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
         w.put(self.slot)?;
@@ -31,7 +25,7 @@ impl Msg for GetCertificate {
 
 impl GetCertificate {
     pub fn parse_body(buf: &[u8]) -> Result<GetCertificate, ReadError> {
-        let mut r = Reader::new(Self::name(), buf);
+        let mut r = Reader::new(Self::NAME, buf);
         let slot = r.get_byte()?;
         r.skip_reserved(1)?;
         let offset = r.get_u16()?;
@@ -54,17 +48,11 @@ pub struct Certificate<const N: usize> {
 }
 
 impl<const N: usize> Msg for Certificate<N> {
-    fn name() -> &'static str {
-        "CERTIFICATE"
-    }
+    const NAME: &'static str = "CERTIFICATE";
 
-    fn spdm_version() -> u8 {
-        0x11
-    }
+    const SPDM_VERSION: u8 = 0x11;
 
-    fn spdm_code() -> u8 {
-        0x02
-    }
+    const SPDM_CODE: u8 = 0x02;
 
     fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
         w.put(self.slot)?;
@@ -77,13 +65,13 @@ impl<const N: usize> Msg for Certificate<N> {
 
 impl<const N: usize> Certificate<N> {
     pub fn parse_body(buf: &[u8]) -> Result<Certificate<N>, ReadError> {
-        let mut r = Reader::new(Self::name(), buf);
+        let mut r = Reader::new(Self::NAME, buf);
         let slot = r.get_byte()?;
         r.skip_reserved(1)?;
         let portion_length = r.get_u16()?;
         if portion_length as usize > N {
             return Err(ReadError::new(
-                Self::name(),
+                Self::NAME,
                 ReadErrorKind::ImplementationLimitReached,
             ));
         }
