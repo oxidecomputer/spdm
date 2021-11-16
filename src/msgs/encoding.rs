@@ -279,6 +279,10 @@ impl<'a> Reader<'a> {
         Ok(u32::from_le_bytes(*buf))
     }
 
+    pub fn byte_offset(&self) -> usize {
+        self.byte_offset
+    }
+
     pub fn remaining(&self) -> usize {
         self.buf.len() - self.byte_offset
     }

@@ -1,15 +1,22 @@
 use spdm::config::{Config, MAX_CERT_CHAIN_SIZE, NUM_SLOTS};
-use spdm::crypto::digest::{Digest, RingDigest};
+use spdm::crypto::{
+    digest::{Digest, RingDigest},
+    signing::{new_signer, RingSigner},
+};
 use spdm::msgs::algorithms::*;
 use spdm::msgs::capabilities::{
     Capabilities, GetCapabilities, ReqFlags, RspFlags,
 };
-use spdm::msgs::digest::Digests;
-use spdm::msgs::GetVersion;
-use spdm::msgs::Msg;
+use spdm::msgs::{
+    digest::Digests, encoding::Writer, CertificateChain, GetVersion, Msg,
+};
 use spdm::requester;
 use spdm::responder;
 use spdm::{msgs, Transcript};
+
+use test_utils::certs::*;
+
+use std::time::SystemTime;
 
 pub struct TestConfig {}
 
@@ -38,11 +45,76 @@ impl Data {
     }
 }
 
-fn mock_cert_chains() -> [Vec<u8>; NUM_SLOTS] {
-    let mut cert_chains = [Vec::new(); NUM_SLOTS];
+// Return the number of seconds since Unix epoch when a cert is expected to
+// expire.
+fn expiry() -> u64 {
+    SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
+        + 10000
+}
+
+struct Certs {
+    pub root_der: Vec<u8>,
+    pub intermediate_der: Vec<u8>,
+    pub leaf_der: Vec<u8>,
+    pub leaf_private_der: Vec<u8>,
+    pub root_hash: <TestConfig as Config>::Digest,
+}
+
+impl Certs {
+    pub fn new() -> Certs {
+        let root_params = cert_params_ecdsa_p256_sha256(true, "Root");
+        let intermediate_params =
+            cert_params_ecdsa_p256_sha256(true, "Intermediate");
+        let leaf_params = cert_params_ecdsa_p256_sha256(false, "Leaf");
+        let root = rcgen::Certificate::from_params(root_params).unwrap();
+        let intermediate =
+            rcgen::Certificate::from_params(intermediate_params).unwrap();
+        let leaf = rcgen::Certificate::from_params(leaf_params).unwrap();
+        let root_der = root.serialize_der().unwrap();
+        let root_hash = <TestConfig as Config>::Digest::hash(
+            BaseHashAlgo::SHA_256,
+            &root_der,
+        );
+
+        Certs {
+            root_der,
+            intermediate_der: intermediate
+                .serialize_der_with_signer(&root)
+                .unwrap(),
+            leaf_der: leaf.serialize_der_with_signer(&intermediate).unwrap(),
+            leaf_private_der: leaf.serialize_private_key_der(),
+            root_hash,
+        }
+    }
+
+    pub fn cert_chain<'a>(&'a self) -> CertificateChain<'a> {
+        let mut chain =
+            CertificateChain::new(self.root_hash.as_ref(), &self.leaf_der);
+        chain.append_intermediate_cert(&self.intermediate_der).unwrap();
+        chain
+    }
+}
+
+fn create_certs_per_slot() -> Vec<Certs> {
+    (0..NUM_SLOTS).map(|_| Certs::new()).collect()
+}
+
+/// Create a set of cert chains, but only filling in some slots
+///
+/// In our test code, all cert chains use the same algorithms, but this is not
+/// how they will likely be deployed in practice. From what I can tell, the most
+/// likely usage is to support multiple endpoints with different algorithm
+/// capabilities, such as during rolling upgrade of software or hardware.
+fn create_cert_chains<'a>(
+    certs: &'a [Certs],
+) -> [Option<CertificateChain<'a>>; NUM_SLOTS] {
+    assert_eq!(certs.len(), NUM_SLOTS);
+    let mut cert_chains = [None; NUM_SLOTS];
     for i in 0..NUM_SLOTS {
         if i % 2 == 0 {
-            cert_chains[i] = vec![i as u8; MAX_CERT_CHAIN_SIZE / (i + 1)];
+            cert_chains[i] = Some(certs[i].cert_chain());
+        } else {
+            cert_chains[i] = None;
         }
     }
     cert_chains
@@ -188,7 +260,7 @@ fn negotiate_algorithms(
     // The requester describes its options for algorithms
     let req = NegotiateAlgorithms {
         measurement_spec: MeasurementSpec::DMTF,
-        base_asym_algo: BaseAsymAlgo::ECDSA_ECC_NIST_P384,
+        base_asym_algo: BaseAsymAlgo::ECDSA_ECC_NIST_P256,
         base_hash_algo: BaseHashAlgo::SHA_256 | BaseHashAlgo::SHA3_256,
         num_algorithm_requests: 4,
         algorithm_requests: [
@@ -252,7 +324,7 @@ fn negotiate_algorithms(
     );
     assert_eq!(
         req_state.algorithms.base_asym_algo_selected,
-        BaseAsymAlgo::ECDSA_ECC_NIST_P384
+        BaseAsymAlgo::ECDSA_ECC_NIST_P256
     );
     assert_eq!(
         req_state.algorithms.base_hash_algo_selected,
@@ -290,20 +362,12 @@ fn negotiate_algorithms(
     (req_state, rsp_state)
 }
 
-fn identify_responder(
+fn identify_responder<'a>(
     mut req_state: requester::id_auth::State,
     rsp_state: responder::id_auth::State,
     data: &mut Data,
-) {
-    // We expect the responder application to have a set of certs.
-    let stored_certs = mock_cert_chains();
-    let mut cert_chains: [Option<&[u8]>; NUM_SLOTS] = [None; NUM_SLOTS];
-    for (i, v) in stored_certs.iter().enumerate() {
-        if v.len() != 0 {
-            cert_chains[i] = Some(&v[..]);
-        }
-    }
-
+    cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
+) -> (requester::challenge::State, responder::challenge::State) {
     // Generate the GET_DIGESTS request at the requester
     let req_size = req_state
         .write_get_digests_msg(&mut data.req_buf, &mut data.req_transcript)
@@ -312,7 +376,7 @@ fn identify_responder(
     // Handle the GET_DIGESTS request at the responder
     let (rsp_size, transition) = rsp_state
         .handle_msg::<TestConfig>(
-            &cert_chains,
+            cert_chains,
             &data.req_buf[..req_size],
             &mut data.rsp_buf,
             &mut data.rsp_transcript,
@@ -337,7 +401,7 @@ fn identify_responder(
     // The responder creates and sends a digest for each cert chain that exists
     assert_digests_match_cert_chains(
         req_state.algorithms.base_hash_algo_selected,
-        &cert_chains,
+        cert_chains,
         &req_state.digests.as_ref().unwrap(),
     );
 
@@ -352,7 +416,7 @@ fn identify_responder(
         .unwrap();
 
     // Handle the GET_CERTIFICATE request at the responder
-    let (rsp_size, _rsp_state) = rsp_state
+    let (rsp_size, transition) = rsp_state
         .handle_msg::<TestConfig>(
             &cert_chains,
             &data.req_buf[..req_size],
@@ -361,18 +425,87 @@ fn identify_responder(
         )
         .unwrap();
 
+    let rsp_state = if let responder::id_auth::Transition::Challenge(
+        rsp_state,
+    ) = transition
+    {
+        rsp_state
+    } else {
+        unreachable!();
+    };
+
     // Handle the CERTIFICATE response at the requester
-    req_state
+    let req_state = req_state
         .handle_certificate(&data.rsp_buf[..rsp_size], &mut data.req_transcript)
         .unwrap();
 
     assert_eq!(data.req_transcript.get(), data.rsp_transcript.get());
+
+    (req_state, rsp_state)
+}
+
+fn challenge_auth<'a>(
+    mut req_state: requester::challenge::State,
+    rsp_state: responder::challenge::State,
+    data: &mut Data,
+    cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
+    certs: &[Certs],
+) {
+    // Create the CHALLENGE request at the requester
+    let req_size = req_state
+        .write_challenge_msg(
+            msgs::MeasurementHashType::None,
+            &mut data.req_buf,
+            &mut data.req_transcript,
+        )
+        .unwrap();
+
+    // Create the signer, since the private key is application specific. In a
+    // system with an RoT or other hardware mechanism, the signer will be a call
+    // into that mechanism, since the private key is not exposed outside the HW.
+    //
+    // TODO: This only works with a single cert/signer. We need to figure out a
+    // way to support a signer per slot. This gets tricky if each slot has a separate
+    // algorithm. It's possible, instead, that we create a signing interface to
+    // use that takes a slot as a parameter.
+    let private_key = &certs[0].leaf_private_der;
+    let signer =
+        new_signer(rsp_state.algorithms.base_asym_algo_selected, private_key)
+            .unwrap();
+
+    // Handle the CHALLENGE request at the responder
+    let (rsp_size, transition) = rsp_state
+        .handle_msg::<TestConfig, RingSigner>(
+            cert_chains,
+            &signer,
+            &data.req_buf[..req_size],
+            &mut data.rsp_buf,
+            &mut data.rsp_transcript,
+        )
+        .unwrap();
+
+    assert_eq!(transition, responder::challenge::Transition::Placeholder);
+
+    // TODO: Handle more than one slot
+    let root_cert = &certs[0].root_der;
+
+    // Deliver the response to the requester
+    let transition = req_state
+        .handle_msg::<TestConfig>(
+            &data.rsp_buf[..rsp_size],
+            &mut data.req_transcript,
+            root_cert,
+            expiry(),
+        )
+        .unwrap();
+
+    assert_eq!(transition, requester::challenge::Transition::Placeholder);
 }
 
 // Verify that there is a proper digest for each cert chain
-fn assert_digests_match_cert_chains(
+fn assert_digests_match_cert_chains<'a>(
     hash_algo: BaseHashAlgo,
-    cert_chains: &[Option<&[u8]>; NUM_SLOTS],
+    cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
     digests: &Digests<NUM_SLOTS>,
 ) {
     for (i, (chain, digest)) in
@@ -380,8 +513,11 @@ fn assert_digests_match_cert_chains(
     {
         // Is there a digest for the given slot
         if (1 << i as u8) & digests.slot_mask != 0 {
+            let mut buf = [0u8; MAX_CERT_CHAIN_SIZE];
+            let mut w = Writer::new("CERTIFICATE_CHAIN", &mut buf);
+            let size = chain.as_ref().unwrap().write(&mut w).unwrap();
             let expected =
-                <TestConfig as Config>::Digest::hash(hash_algo, chain.unwrap());
+                <TestConfig as Config>::Digest::hash(hash_algo, &buf[..size]);
             let len = expected.as_ref().len();
             assert_eq!(digest.as_slice(len), expected.as_ref());
         } else {
@@ -391,15 +527,21 @@ fn assert_digests_match_cert_chains(
 }
 
 #[test]
-fn successful_negotiation() {
+fn successful_e2e() {
     let mut data = Data::new();
+
+    let certs = create_certs_per_slot();
+    let cert_chains = create_cert_chains(&certs);
 
     let (req_state, rsp_state) = negotiate_versions(&mut data);
     let (req_state, rsp_state) =
         negotiate_capabilities(req_state, rsp_state, &mut data);
     let (req_state, rsp_state) =
         negotiate_algorithms(req_state, rsp_state, &mut data);
-    identify_responder(req_state, rsp_state, &mut data);
+    let (req_state, rsp_state) =
+        identify_responder(req_state, rsp_state, &mut data, &cert_chains);
+
+    challenge_auth(req_state, rsp_state, &mut data, &cert_chains, &certs);
 }
 
 // A Responder will go back to `capabilities::State` if a requester sends a

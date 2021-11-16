@@ -1,6 +1,7 @@
-use crate::msgs::algorithms::BaseHashAlgo;
 use core::cmp::PartialEq;
 use core::convert::AsRef;
+
+use crate::msgs::algorithms::BaseHashAlgo;
 
 /// A very basic digest trait
 pub trait Digest: AsRef<[u8]> {

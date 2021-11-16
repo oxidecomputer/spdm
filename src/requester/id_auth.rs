@@ -1,18 +1,13 @@
 use core::convert::From;
 
-use super::{algorithms, expect, RequesterError};
+use super::{algorithms, challenge, expect, RequesterError};
 use crate::config::{MAX_CERT_CHAIN_SIZE, NUM_SLOTS};
-use crate::msgs::algorithms::*;
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
 use crate::msgs::{
     Algorithms, Certificate, Digests, GetCertificate, GetDigests, Msg,
     VersionEntry, HEADER_SIZE,
 };
 use crate::Transcript;
-
-pub enum Transition {
-    Placeholder,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Id<'a> {
@@ -59,19 +54,6 @@ impl From<algorithms::State> for State {
 }
 
 impl State {
-    /// Skip to the next state without sending GET_DIGEST and GET_CERTIFICATE
-    /// requests.
-    ///
-    /// Indentity authentication is optional. We allow the user to skip this
-    /// state entirely if they desire. This is useful if, as described in the spec, the
-    /// public key of the responder was provisioned to the requester in a trusted
-    /// environment.
-    pub fn skip(self) -> Transition {
-
-        // TODO: Return a real state
-        Transition::Placeholder
-    }
-
     /// Write a GET_DIGESTS msg to the buffer and record it in the transcript.
     ///
     /// TODO: We can probably shrink the transcript to the size of a hash at
@@ -98,7 +80,8 @@ impl State {
         transcript: &mut Transcript,
     ) -> Result<(), RequesterError> {
         expect::<Digests<NUM_SLOTS>>(buf)?;
-        let digest_size = self.get_digest_size();
+        let digest_size =
+            self.algorithms.base_hash_algo_selected.get_digest_size();
         let digests = Digests::parse_body(digest_size, &buf[HEADER_SIZE..])?;
         self.digests = Some(digests);
         transcript.extend(buf)?;
@@ -118,7 +101,9 @@ impl State {
         // TODO: Allow retrieiving cert chains from offsets. We assume for now
         // buffers are large enough to retrieve them in one round trip.
         let msg = GetCertificate {
-            slot, offset: 0, length: MAX_CERT_CHAIN_SIZE as u16
+            slot,
+            offset: 0,
+            length: MAX_CERT_CHAIN_SIZE as u16,
         };
         let size = msg.write(buf)?;
         transcript.extend(&buf[..size])?;
@@ -130,21 +115,11 @@ impl State {
         mut self,
         buf: &[u8],
         transcript: &mut Transcript,
-    ) -> Result<Transition, RequesterError> {
+    ) -> Result<challenge::State, RequesterError> {
         expect::<Certificate<MAX_CERT_CHAIN_SIZE>>(buf)?;
         let cert = Certificate::parse_body(&buf[HEADER_SIZE..])?;
         self.cert_chain = Some(cert);
         transcript.extend(buf)?;
-        Ok(Transition::Placeholder)
-    }
-
-    fn get_digest_size(&self) -> u8 {
-        use BaseHashAlgo as H;
-        match self.algorithms.base_hash_algo_selected {
-            H::SHA_256 | H::SHA3_256 => 32,
-            H::SHA_384 | H::SHA3_384 => 48,
-            H::SHA_512 | H::SHA3_512 => 64,
-            _ => unreachable!(),
-        }
+        Ok(self.into())
     }
 }

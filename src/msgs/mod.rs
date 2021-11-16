@@ -4,6 +4,7 @@ pub mod encoding;
 pub mod version;
 pub mod digest;
 pub mod certificates;
+pub mod challenge;
 
 use encoding::Writer;
 pub use encoding::{ReadError, ReadErrorKind, WriteError};
@@ -11,7 +12,8 @@ pub use version::{GetVersion, Version, VersionEntry};
 pub use capabilities::{GetCapabilities, Capabilities};
 pub use algorithms::{NegotiateAlgorithms, Algorithms};
 pub use digest::{GetDigests, Digests};
-pub use certificates::{GetCertificate, Certificate};
+pub use certificates::{GetCertificate, Certificate, CertificateChain};
+pub use challenge::{Challenge, ChallengeAuth, MeasurementHashType};
 
 pub const HEADER_SIZE: usize = 2;
 

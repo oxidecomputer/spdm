@@ -7,6 +7,12 @@ pub enum ResponderError {
 
     // `got` is the code. TODO: Try to map this to a message name?
     UnexpectedMsg { expected: &'static str, got: u8 },
+
+    // A challenge was sent with a slot that does not contain a cert
+    InvalidSlot,
+
+    // For some reason signing failed. This could be caused by a HW failure.
+    SigningFailed
 }
 
 impl From<WriteError> for ResponderError {

@@ -18,6 +18,21 @@ bitflags! {
    }
 }
 
+impl BaseAsymAlgo {
+    pub fn get_signature_size(&self) -> usize {
+        use BaseAsymAlgo as A;
+        match *self {
+            A::RSASSA_2048 | A::RSAPSS_2048 => 256,
+            A::RSASSA_3072 | A::RSAPSS_3072 => 384,
+            A::ECDSA_ECC_NIST_P256 => 64,
+            A::RSASSA_4096 | A::RSAPSS_4096 => 512,
+            A::ECDSA_ECC_NIST_P384 => 96,
+            A::ECDSA_ECC_NIST_P521 => 132,
+            _ => unreachable!()
+        }
+    }
+}
+
 bitflags! {
     #[derive(Default)]
     pub struct BaseHashAlgo: u32 {
@@ -27,6 +42,18 @@ bitflags! {
         const SHA3_256 = 0x8;
         const SHA3_384 = 0x10;
         const SHA3_512 = 0x20;
+    }
+}
+
+impl BaseHashAlgo {
+    pub fn get_digest_size(&self) -> u8 {
+        use BaseHashAlgo as H;
+        match *self {
+            H::SHA_256 | H::SHA3_256 => 32,
+            H::SHA_384 | H::SHA3_384 => 48,
+            H::SHA_512 | H::SHA3_512 => 64,
+            _ => unreachable!(),
+        }
     }
 }
 
@@ -751,7 +778,6 @@ pub mod tests {
             [AlgorithmResponse::default(); MAX_ALGORITHM_REQUESTS];
         algo_responses(&mut responses);
         let mut msg = algo(responses);
-
 
         // Patch the responses to have more than 1 bit set
         algo_requests(&mut msg.algorithm_responses);
