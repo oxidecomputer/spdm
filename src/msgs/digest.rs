@@ -1,5 +1,7 @@
 use core::cmp::PartialEq;
 
+use crate::config::MAX_DIGEST_SIZE;
+
 use super::encoding::{ReadError, Reader, WriteError, Writer};
 use super::Msg;
 
@@ -42,7 +44,7 @@ impl DigestBuf {
 
 impl Default for DigestBuf {
     fn default() -> Self {
-        DigestBuf { buf: [0; 64] }
+        DigestBuf { buf: [0; MAX_DIGEST_SIZE] }
     }
 }
 

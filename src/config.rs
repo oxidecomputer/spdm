@@ -24,6 +24,19 @@ pub const MAX_CERT_CHAIN_SIZE: usize = 1536;
 // This must be larger than MAX_CERT_CHAIN_SIZE
 pub const TRANSCRIPT_SIZE: usize = 2048;
 
+// The maximum size of a hash in bytes.
+pub const MAX_DIGEST_SIZE: usize = 64;
+
+// The maximum size of a signature in bytes
+pub const MAX_SIGNATURE_SIZE: usize = 128;
+
+// ChallengeAuth responses allow opaque data.
+// This is probably not necessary for most users/transports.
+pub const MAX_OPAQUE_DATA_SIZE: usize = 0;
+
+// The maximum depth of a certificate chain
+pub const MAX_CERT_CHAIN_DEPTH: usize = 6;
+
 pub trait Config {
     type Digest: Digest;
 }

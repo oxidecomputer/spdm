@@ -1,21 +1,32 @@
-use super::{algorithms, capabilities, ResponderError};
+use super::{algorithms, capabilities, challenge, expect, ResponderError};
 
 use crate::config::{Config, MAX_CERT_CHAIN_SIZE, NUM_SLOTS};
 use crate::crypto::digest::Digest;
-use crate::msgs::algorithms::*;
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
 use crate::msgs::digest::DigestBuf;
 use crate::msgs::{
-    Algorithms, Certificate, Digests, GetCertificate, GetDigests, Msg,
-    ReadError, ReadErrorKind, HEADER_SIZE,
+    encoding::Writer, Algorithms, Certificate, CertificateChain, Digests,
+    GetCertificate, GetDigests, Msg, ReadError, ReadErrorKind, HEADER_SIZE,
 };
 use crate::{reset_on_get_version, Transcript};
+
+pub fn create_slot_mask<'a>(
+    cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
+) -> u8 {
+    let mut bits = 0u8;
+    for i in 0..NUM_SLOTS {
+        if cert_chains[i].is_some() {
+            bits |= 1 << i;
+        }
+    }
+    return bits;
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Transition {
     Capabilities(capabilities::State),
     IdAuth(State),
-    Placeholder,
+    Challenge(challenge::State),
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
@@ -40,9 +51,9 @@ impl From<algorithms::State> for State {
 }
 
 impl State {
-    pub fn handle_msg<C: Config>(
+    pub fn handle_msg<'a, C: Config>(
         self,
-        cert_chains: &[Option<&[u8]>; NUM_SLOTS],
+        cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
         req: &[u8],
         rsp: &mut [u8],
         transcript: &mut Transcript,
@@ -58,22 +69,15 @@ impl State {
             );
         }
 
-        if GetCertificate::parse_header(req)? {
-            return self.handle_get_certificate(
-                cert_chains,
-                req,
-                rsp,
-                transcript,
-            );
-        }
-
-        // TODO: Handle message that causes transition to next state.
-        unimplemented!()
+        // TODO: Handle more than one CERTIFICATE message. How do we decide when
+        // to transfer to the next state then?
+        expect::<GetCertificate>(req)?;
+        self.handle_get_certificate(cert_chains, req, rsp, transcript)
     }
 
-    fn handle_get_certificate(
+    fn handle_get_certificate<'a>(
         self,
-        cert_chains: &[Option<&[u8]>; NUM_SLOTS],
+        cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
         req: &[u8],
         rsp: &mut [u8],
         transcript: &mut Transcript,
@@ -83,16 +87,19 @@ impl State {
             return Err(ReadError::new(
                 GetCertificate::NAME,
                 ReadErrorKind::ImplementationLimitReached,
-            ).into());
+            )
+            .into());
         }
+
+        // TODO: Handle cert chains larger than response buffer (i.e. send
+        // responses in multiple messages)
         let mut cert_chain = [0u8; MAX_CERT_CHAIN_SIZE];
         let mut portion_length: u16 = 0;
-        if let Some(chain) = cert_chains[get_cert.slot as usize] {
-            portion_length = chain.len() as u16;
-            // TODO: Handle cert chains larger than response buffer (i.e. send
-            // responses in multiple messages)
-            cert_chain[..chain.len()].copy_from_slice(chain);
+        if let Some(chain) = &cert_chains[get_cert.slot as usize] {
+            let mut w = Writer::new("CERTIFICATE_CHAIN", &mut cert_chain);
+            portion_length = chain.write(&mut w)? as u16;
         }
+
         let cert = Certificate {
             slot: get_cert.slot,
             portion_length,
@@ -104,19 +111,20 @@ impl State {
         transcript.extend(req)?;
         transcript.extend(&rsp[..size])?;
 
-        Ok((size, Transition::IdAuth(self)))
+        Ok((size, Transition::Challenge(self.into())))
     }
 
-    fn handle_get_digests<C: Config>(
+    fn handle_get_digests<'a, C: Config>(
         self,
-        cert_chains: &[Option<&[u8]>; NUM_SLOTS],
+        cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
         req: &[u8],
         rsp: &mut [u8],
         transcript: &mut Transcript,
     ) -> Result<(usize, Transition), ResponderError> {
-        let slot_mask = Self::create_slot_mask(cert_chains);
-        let digests = self.hash_cert_chains::<C>(cert_chains);
-        let digest_size = self.get_digest_size();
+        let slot_mask = create_slot_mask(cert_chains);
+        let digests = self.hash_cert_chains::<C>(cert_chains)?;
+        let digest_size =
+            self.algorithms.base_hash_algo_selected.get_digest_size();
         let digests = Digests { digest_size, slot_mask, digests };
         let size = digests.write(rsp)?;
 
@@ -126,41 +134,24 @@ impl State {
         Ok((size, Transition::IdAuth(self)))
     }
 
-    fn hash_cert_chains<C: Config>(
+    fn hash_cert_chains<'a, C: Config>(
         &self,
-        cert_chains: &[Option<&[u8]>; NUM_SLOTS],
-    ) -> [DigestBuf; NUM_SLOTS] {
+        cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
+    ) -> Result<[DigestBuf; NUM_SLOTS], ResponderError> {
         let mut digests = [DigestBuf::default(); NUM_SLOTS];
+        let mut buf = [0u8; MAX_CERT_CHAIN_SIZE];
         for i in 0..NUM_SLOTS {
-            if let Some(buf) = cert_chains[i] {
+            if let Some(cert_chain) = &cert_chains[i] {
+                let mut w = Writer::new("CERTIFICATE_CHAIN", &mut buf);
+                let size = cert_chain.write(&mut w)?;
                 let digest = C::Digest::hash(
                     self.algorithms.base_hash_algo_selected,
-                    buf,
+                    &buf[..size],
                 );
                 let len = digest.as_ref().len();
                 digests[i].as_mut(len).copy_from_slice(digest.as_ref());
             }
         }
-        digests
-    }
-
-    fn create_slot_mask(cert_chains: &[Option<&[u8]>; NUM_SLOTS]) -> u8 {
-        let mut bits = 0u8;
-        for i in 0..NUM_SLOTS {
-            if cert_chains[i].is_some() {
-                bits |= 1 << i;
-            }
-        }
-        return bits;
-    }
-
-    fn get_digest_size(&self) -> u8 {
-        use BaseHashAlgo as H;
-        match self.algorithms.base_hash_algo_selected {
-            H::SHA_256 | H::SHA3_256 => 32,
-            H::SHA_384 | H::SHA3_384 => 48,
-            H::SHA_512 | H::SHA3_512 => 64,
-            _ => unreachable!(),
-        }
+        Ok(digests)
     }
 }
