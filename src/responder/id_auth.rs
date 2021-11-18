@@ -10,6 +10,8 @@ use crate::msgs::{
 };
 use crate::{reset_on_get_version, Transcript};
 
+/// Create a slot mask where a `1` represents a present cert chain, and a `0`
+/// indicates absence.
 pub fn create_slot_mask<'a>(
     cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
 ) -> u8 {
@@ -22,6 +24,7 @@ pub fn create_slot_mask<'a>(
     return bits;
 }
 
+/// A state transition out of the id_auth::State
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Transition {
     Capabilities(capabilities::State),
@@ -29,6 +32,8 @@ pub enum Transition {
     Challenge(challenge::State),
 }
 
+/// The state where digests and certificates are sent to a requester in order to
+/// identify a responder.
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct State {
     pub requester_ct_exponent: u8,
@@ -51,6 +56,10 @@ impl From<algorithms::State> for State {
 }
 
 impl State {
+    /// Handle a message from a requester.
+    ///
+    /// Only GET_VERSION, GET_DIGESTS, and GET_CERTIFICATE messsages are
+    /// allowed.
     pub fn handle_msg<'a, C: Config>(
         self,
         cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],

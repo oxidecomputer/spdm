@@ -8,7 +8,7 @@ use crate::msgs::{
 };
 use crate::Transcript;
 
-// After capabilities negotiation, comes algorithm negotiation
+/// After capabilities negotiation, comes algorithm negotiation
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct State {
     pub version: VersionEntry,
@@ -35,6 +35,8 @@ impl From<capabilities::State> for State {
 }
 
 impl State {
+    /// Serialize a NEGOTIATE_ALGORITHMS request and append it to the
+    /// transcript
     pub fn write_msg(
         &mut self,
         msg: NegotiateAlgorithms,

@@ -53,7 +53,7 @@ impl From<id_auth::State> for State {
 }
 
 impl State {
-    /// Write a CHALLENGE msg to the buffer.
+    /// Write a CHALLENGE msg to the buffer, and append it to the transcript.
     pub fn write_challenge_msg(
         &mut self,
         measurement_hash_type: MeasurementHashType,
@@ -67,6 +67,9 @@ impl State {
         Ok(size)
     }
 
+    /// Process a received responder message.
+    ///
+    /// Only CHALLENGE_AUTH msgs are acceptable here.
     pub fn handle_msg<C: Config>(
         self,
         buf: &[u8],

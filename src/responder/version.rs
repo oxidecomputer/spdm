@@ -5,6 +5,7 @@ use crate::Transcript;
 pub struct State {}
 
 impl State {
+    /// Handle the initial message from a SPDM requester: GET_VERSION
     pub fn handle_msg(
         self,
         req: &[u8],

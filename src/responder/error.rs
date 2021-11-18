@@ -1,5 +1,6 @@
 use crate::msgs::{ReadError, WriteError};
 
+/// An error returned by a responder state
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResponderError {
     Write(WriteError),

@@ -19,6 +19,7 @@ pub enum Transition {
     Placeholder,
 }
 
+/// Challenge requests are handled and responded to in this state
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct State {
     pub requester_ct_exponent: u8,
@@ -41,6 +42,9 @@ impl From<id_auth::State> for State {
 }
 
 impl State {
+    /// Handle a message from a requester
+    ///
+    /// Only CHALLENGE and GET_VERSION msgs are allowed here.
     pub fn handle_msg<'a, C: Config, S: Signer>(
         self,
         cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],

@@ -4,6 +4,7 @@ use super::Msg;
 use bitflags::bitflags;
 
 bitflags! {
+   /// The base asymetric signing algorithm defined in the SPDM spec
    #[derive(Default)]
    pub struct BaseAsymAlgo: u32 {
        const RSASSA_2048 = 0x1;
@@ -19,6 +20,7 @@ bitflags! {
 }
 
 impl BaseAsymAlgo {
+    // The signature size in bytes of the "Raw" or "Fixed" signature.
     pub fn get_signature_size(&self) -> usize {
         use BaseAsymAlgo as A;
         match *self {
@@ -34,6 +36,7 @@ impl BaseAsymAlgo {
 }
 
 bitflags! {
+    /// The base hash algorithm defined in the SPDM spec.
     #[derive(Default)]
     pub struct BaseHashAlgo: u32 {
         const SHA_256 = 0x1;
@@ -46,6 +49,7 @@ bitflags! {
 }
 
 impl BaseHashAlgo {
+    /// The size of a digest in bytes
     pub fn get_digest_size(&self) -> u8 {
         use BaseHashAlgo as H;
         match *self {
@@ -58,7 +62,6 @@ impl BaseHashAlgo {
 }
 
 bitflags! {
-
     /// This is the `MeasurementSpecification` field from the Measurement block
     /// format in seciton 10.11.1 of the SPDM 1.1 spec. Only 1 bit is valid at
     /// a time. Currently DMTF is the only valid value.
@@ -68,14 +71,14 @@ bitflags! {
     }
 }
 
-// We use associated constants for AlgorithmRequests
-//
+// SPDM Parameters in AlgorithmRequests
 pub trait AlgorithmConstants {
     const TYPE: u8;
     const FIXED_ALG_COUNT: u8;
 }
 
 bitflags! {
+    /// The base key-exchange algorithms in the SPDM spec.
     #[derive(Default)]
     pub struct DheFixedAlgorithms: u16 {
        const FFDHE_2048 = 0x1;
@@ -87,7 +90,9 @@ bitflags! {
     }
 }
 
-// We don't currently support any external algorithms
+/// All defined key-exchange algorithms
+///
+/// We don't currently support any external algorithms.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DheAlgorithm {
     pub supported: DheFixedAlgorithms,
@@ -99,6 +104,7 @@ impl AlgorithmConstants for DheAlgorithm {
 }
 
 bitflags! {
+    /// Base AEAD algorithms defined for use in the SPDM spec
     #[derive(Default)]
     pub struct AeadFixedAlgorithms: u16 {
         const AES_128_GCM = 0x1;
@@ -107,7 +113,9 @@ bitflags! {
     }
 }
 
-// We don't currently support any external algorithms
+/// All defined AEAD algorithms.
+///
+/// We don't currently support any external algorithms
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AeadAlgorithm {
     pub supported: AeadFixedAlgorithms,
@@ -119,6 +127,7 @@ impl AlgorithmConstants for AeadAlgorithm {
 }
 
 bitflags! {
+    /// Base asymmetric signing algorithms for use by the requester
     #[derive(Default)]
     pub struct ReqBaseAsymFixedAlgorithms: u16 {
        const RSASSA_2048 = 0x1;
@@ -133,7 +142,9 @@ bitflags! {
     }
 }
 
-// We don't currently support any external algorithms
+/// All defined base digital signature algorithms
+///
+/// We don't currently support any external algorithms
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReqBaseAsymAlgorithm {
     pub supported: ReqBaseAsymFixedAlgorithms,
@@ -163,6 +174,7 @@ impl AlgorithmConstants for KeyScheduleAlgorithm {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// An AlgorithmRequest structure that is part of the NEGOTIATE_ALGORITHMS msg
 pub enum AlgorithmRequest {
     Dhe(DheAlgorithm),
     Aead(AeadAlgorithm),
@@ -193,6 +205,7 @@ impl AlgorithmRequest {
         }
     }
 
+    /// Serialize an AlgorithmRequest structure
     pub fn write(&self, w: &mut Writer) -> Result<usize, WriteError> {
         match &self {
             AlgorithmRequest::Dhe(algo) => {
@@ -219,6 +232,7 @@ impl AlgorithmRequest {
         Ok(w.offset())
     }
 
+    // Deserialize an AlgorithmRequest structure
     pub fn read(
         msg_name: &'static str,
         r: &mut Reader,
@@ -316,6 +330,8 @@ impl AlgorithmRequest {
 /// This corresponds to the number of `RequestAlgorithm` variants
 pub const MAX_ALGORITHM_REQUESTS: usize = 4;
 
+/// The NEGOTIATE_ALGORITHMS SPDM request
+///
 /// For simplicity and expediency we don't support any extended algorithms yet
 /// in this implementation. This corresponds to the ExtAsym and ExtHash fields
 /// in the spec, as well as the fields related to their sizes.
@@ -452,6 +468,7 @@ impl NegotiateAlgorithms {
 // The format is the same for both messages
 pub type AlgorithmResponse = AlgorithmRequest;
 
+/// The algorithms selected by the responder as part of negotiation
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct Algorithms {
     pub measurement_spec_selected: MeasurementSpec,

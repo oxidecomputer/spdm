@@ -1,6 +1,7 @@
 use crate::crypto::pki;
 use crate::msgs::{ReadError, Version, WriteError};
 
+/// A requester specific error returned from state machine methods
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RequesterError {
     Write(WriteError),

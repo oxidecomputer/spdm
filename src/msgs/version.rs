@@ -1,6 +1,9 @@
 use super::encoding::{ReadError, ReadErrorKind, Reader, WriteError, Writer};
 use super::Msg;
 
+/// Request the SPDM version in use at the responder.
+///
+/// This is the first message issued in the SPDM protocol.
 pub struct GetVersion {}
 
 impl Msg for GetVersion {
@@ -23,8 +26,12 @@ impl GetVersion {
     }
 }
 
+// TODO: Move this to config? If new versions are supported by a responder, they
+/// may not fit in the underlying array, and this would cause version
+/// negotiation to fail and the protocol to be unable to proceed.
 pub const MAX_ALLOWED_VERSIONS: u8 = 2;
 
+/// The deserialized form of a specific version
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct VersionEntry {
     pub major: u8,
@@ -33,6 +40,7 @@ pub struct VersionEntry {
     pub alpha: u8,
 }
 
+/// A VERSION msg contains set of versions supported by a responder
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Version {
     pub num_entries: u8,

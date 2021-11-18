@@ -9,6 +9,7 @@ use crate::config::{
     MAX_DIGEST_SIZE, MAX_OPAQUE_DATA_SIZE, MAX_SIGNATURE_SIZE,
 };
 
+/// The type of measurement requested in a CHALLENGE request
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum MeasurementHashType {
@@ -32,12 +33,14 @@ impl TryFrom<u8> for MeasurementHashType {
     }
 }
 
+/// Generate a 32 byte nonce
 pub fn nonce() -> [u8; 32] {
     let mut nonce = [0u8; 32];
     OsRng.fill_bytes(&mut nonce);
     nonce
 }
 
+/// The requester side of challenge authentication
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Challenge {
     pub slot: u8,
@@ -75,6 +78,7 @@ impl Challenge {
     }
 }
 
+/// The responder side of challenge authentication
 #[derive(Debug, Clone)]
 pub struct ChallengeAuth {
     // Set to 0xF if the responder's public key was pre-provisioned on the
@@ -183,22 +187,46 @@ impl ChallengeAuth {
         }
     }
 
+    /// Return the hash of the certificate chain for the slot in the
+    /// `ChallengeAuth` msg.
+    ///
+    /// Due to the variable size of these hashes, we don't allow direct access
+    /// to the underlying array, which may contain junk bytes.
     pub fn cert_chain_hash(&self) -> &[u8] {
         &self.cert_chain_hash[..self.digest_size as usize]
     }
 
+    /// Return the hash of the measurement summary
+    ///
+    /// This may be 0 if no measurement was requested or none is supported by
+    /// the responder.
+    ///
+    /// Due to the variable size of these hashes, we don't allow direct access
+    /// to the underlying array, which may contain junk bytes.
     pub fn measurement_summary_hash(&self) -> &[u8] {
         &self.measurement_summary_hash[..self.digest_size as usize]
     }
 
+    /// Return any application level opaque_data provided as part of the
+    /// response.
+    ///
+    /// Due to the variable size of these hashes, we don't allow direct access
+    /// to the underlying array, which may contain junk bytes.
     pub fn opaque_date(&self) -> &[u8] {
         &self.opaque_data[..self.opaque_data_len as usize]
     }
 
+    /// Return the message transcript signature that the requester must verify.
+    ///
+    /// Due to the variable size of these signatures, we don't allow direct access
+    /// to the underlying array, which may contain junk bytes.
     pub fn signature(&self) -> &[u8] {
         &self.signature[..self.signature_size]
     }
 
+    /// Deserialize the body of the ChallengeAuth message, given the digest_size
+    /// and signature_size that correspond to the negotiated algorithms in previous
+    /// steps of the protocol.
     pub fn parse_body(
         buf: &[u8],
         digest_size: u8,
