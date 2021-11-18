@@ -1,5 +1,5 @@
 //! A responder follows the typestate pattern
-//! https://cliffle.com/blog/rust-typestate/
+//! <https://cliffle.com/blog/rust-typestate/>
 //!
 //!
 //! As this code is no_std, we can't use a box to minimize the size of the type
@@ -19,6 +19,7 @@ mod error;
 use crate::msgs::Msg;
 pub use error::ResponderError;
 
+/// Enter the first state of the responder state machine, the 'Version' state
 pub fn start() -> version::State {
     version::State {}
 }

@@ -5,6 +5,13 @@ use crate::config::MAX_DIGEST_SIZE;
 use super::encoding::{ReadError, Reader, WriteError, Writer};
 use super::Msg;
 
+/// Request Digests for all certificates in the responder.
+///
+/// This mechanism is used as an optimization to allow caching certificates. If
+/// the digest for the given slot has not changed, the certificate does not have to
+/// be re-fetched. The current implementation does not yet support this
+/// functionality, but to satisfy the protocol GET_DIGESTS must be issued
+/// before GET_CERTIFICATE.
 pub struct GetDigests {}
 
 impl Msg for GetDigests {
@@ -27,9 +34,10 @@ impl GetDigests {
     }
 }
 
+/// An buffer capable of storing digests of unknown size.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct DigestBuf {
-    pub buf: [u8; 64],
+    pub buf: [u8; MAX_DIGEST_SIZE],
 }
 
 impl DigestBuf {
@@ -48,6 +56,7 @@ impl Default for DigestBuf {
     }
 }
 
+/// The response to a GET_DIGESTS msg
 #[derive(Debug, Clone)]
 pub struct Digests<const NUM_SLOTS: usize> {
     pub digest_size: u8,

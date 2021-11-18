@@ -10,3 +10,9 @@ safety to the user via the https://cliffle.com/blog/rust-typestate/#continue-rea
 pattern].
 
 No transports are, or will be, implemented in this library.
+
+== Usage
+
+Currently the best guide to usage is the link:tests/protocol.rs[successful_e2e] integration test.
+
+

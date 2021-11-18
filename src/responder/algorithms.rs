@@ -10,7 +10,7 @@ pub enum Transition {
     IdAuth(id_auth::State),
 }
 
-// Algorithms are selected after capability negotiation.
+/// Algorithms are selected after capability negotiation.
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct State {
     pub requester_ct_exponent: u8,
@@ -33,7 +33,9 @@ impl From<capabilities::State> for State {
 }
 
 impl State {
-    /// GetVersion and NegotiateAlgorithms messages are valid here.
+    /// Handle a message from a requester
+    ///
+    /// Only GetVersion and NegotiateAlgorithms messages are valid here.
     pub fn handle_msg(
         mut self,
         req: &[u8],

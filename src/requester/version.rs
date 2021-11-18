@@ -6,6 +6,7 @@ use crate::Transcript;
 pub struct State {}
 
 impl State {
+    /// Serialize a get version message into `buf` and append it to `transcript`
     pub fn write_get_version(
         &self,
         buf: &mut [u8],

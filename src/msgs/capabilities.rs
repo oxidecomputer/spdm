@@ -4,6 +4,7 @@ use super::Msg;
 use bitflags::bitflags;
 
 bitflags! {
+    /// The Capabilities defined by the requester
     #[derive(Default)]
     pub struct ReqFlags: u32 {
         const CERT_CAP = 0b0000_0010;
@@ -58,6 +59,7 @@ impl GetCapabilities {
 }
 
 bitflags! {
+    /// The Capabilities defined by the responder
     #[derive(Default)]
     pub struct RspFlags: u32 {
         const CACHE_CAP = 0b000_0001;

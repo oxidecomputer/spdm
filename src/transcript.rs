@@ -18,6 +18,7 @@ impl Transcript {
         Transcript { buf: [0; TRANSCRIPT_SIZE], offset: 0 }
     }
 
+    /// Append a serialized message onto the transcript
     pub fn extend(&mut self, buf: &[u8]) -> Result<(), WriteError> {
         let end = self.offset + buf.len();
         if end > self.buf.len() {
@@ -29,14 +30,17 @@ impl Transcript {
         }
     }
 
+    /// Empty the transcript
     pub fn clear(&mut self) {
         self.offset = 0;
     }
 
+    /// Retrieve the transcript
     pub fn get(&self) -> &[u8] {
         &self.buf[0..self.offset]
     }
 
+    /// Return the length of the transcript
     pub fn len(&self) -> usize {
         self.offset
     }

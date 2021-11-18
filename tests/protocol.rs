@@ -526,6 +526,8 @@ fn assert_digests_match_cert_chains<'a>(
     }
 }
 
+// A test that follows the full flow of the currently implemented SPDM protocol,
+// where each state is successfully entered and exited. No errors are returned.
 #[test]
 fn successful_e2e() {
     let mut data = Data::new();

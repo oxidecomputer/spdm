@@ -3,15 +3,14 @@ use core::convert::AsRef;
 
 use crate::msgs::algorithms::BaseHashAlgo;
 
-/// A very basic digest trait
+/// Providers implement this trait to provide cryptographic hash support
 pub trait Digest: AsRef<[u8]> {
     fn hash(algorithm: BaseHashAlgo, buf: &[u8]) -> Self;
-    fn supported_algorithms(&self) -> BaseHashAlgo;
 }
 
 /// A Ring based implementation of a Digest
 ///
-/// TODO: Put this behind a feature
+// TODO: Put this behind a feature
 #[derive(Debug, Clone)]
 pub struct RingDigest {
     digest: ring::digest::Digest,
@@ -26,10 +25,6 @@ impl PartialEq for RingDigest {
 impl Eq for RingDigest {}
 
 impl Digest for RingDigest {
-    fn supported_algorithms(&self) -> BaseHashAlgo {
-        BaseHashAlgo::SHA_256 | BaseHashAlgo::SHA_384 | BaseHashAlgo::SHA_512
-    }
-
     fn hash(algorithm: BaseHashAlgo, buf: &[u8]) -> Self {
         let algo = match algorithm {
             BaseHashAlgo::SHA_256 => &ring::digest::SHA256,

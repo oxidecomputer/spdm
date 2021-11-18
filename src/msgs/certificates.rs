@@ -5,6 +5,12 @@ use crate::config::MAX_CERT_CHAIN_DEPTH;
 use super::encoding::{ReadError, ReadErrorKind, Reader, WriteError, Writer};
 use super::Msg;
 
+/// A request for a certificate portion in a given slot
+///
+/// The SPDM spec allows multiple messages to be used to transfer a certificate,
+/// although this implementation does not yet support that. This is the reason
+/// for the offset and length fields. This implementation always transfers an
+/// entire certificate in one message, implying that offset is always `0`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GetCertificate {
     pub slot: u8,
@@ -39,6 +45,8 @@ impl GetCertificate {
     }
 }
 
+/// A CERTIFICATE message sent by a responder
+///
 /// While the max size of a cert chain is 0xFFFF bytes, most cert chains in
 /// practical use are much smaller. On memory constrained systems, to avoid
 /// allocating the absolute max size, we instead limit the max size via the
@@ -121,12 +129,19 @@ impl<'a> PartialEq for CertificateChain<'a> {
 
 impl<'a> Eq for CertificateChain<'a> {}
 
-// Indicates that there is no more room for intermediate certs in a
-// `CertificateChain`.
+/// Indicates that there is no more room for intermediate certs in a
+/// `CertificateChain`.
 #[derive(Debug)]
 pub struct Full {}
 
 impl<'a> CertificateChain<'a> {
+    /// Create a new certificate chain with no intermediate certificates
+    ///
+    /// `root_hash` is the hash of the DER encoded root certificate used to start
+    /// the chain.
+    ///
+    /// `leaf_cert` is an ASN.1 DER encoded EndEntity certificate signed by
+    /// either the root certificate or the last intermediate certificate in the chain.
     pub fn new(root_hash: &'a [u8], leaf_cert: &'a [u8]) -> Self {
         CertificateChain {
             root_hash,
@@ -142,10 +157,16 @@ impl<'a> CertificateChain<'a> {
         }
     }
 
+    /// Return all ASN.1 DER encoded certificates
     pub fn intermediate_certs(&self) -> &[&[u8]] {
         &self.intermediate_certs[0..self.num_intermediate_certs as usize]
     }
 
+    /// Append an ASN.1 DER encoded intermediate certificate to the chain
+    ///
+    /// This method is required to ensure that a cert chain can be returned as a
+    /// a slice of slices, no matter the original format of the generated certs
+    /// in the application code..
     pub fn append_intermediate_cert(
         &mut self,
         cert: &'a [u8],
@@ -158,6 +179,7 @@ impl<'a> CertificateChain<'a> {
         Ok(())
     }
 
+    /// Serialize a certificate chain via a Writer
     pub fn write(&self, w: &mut Writer) -> Result<usize, WriteError> {
         let length = 4
             + self.root_hash.len()
@@ -177,6 +199,9 @@ impl<'a> CertificateChain<'a> {
         w.extend(self.leaf_cert)
     }
 
+    /// Deserialize a CertificateChain into `buf` given `digest_size`.
+    ///
+    /// `digest_size` must match the size of the digest used for the root hash.
     pub fn parse(
         buf: &'a [u8],
         digest_size: u8,

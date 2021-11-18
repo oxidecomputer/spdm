@@ -1,5 +1,6 @@
 use core::convert::TryInto;
 
+/// An error returned by a `Writer` when serialization fails.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WriteError {
     msg: &'static str,
@@ -12,6 +13,7 @@ impl WriteError {
     }
 }
 
+/// The mechanism used for serializing SPDM messages
 pub struct Writer<'a> {
     msg: &'static str,
     buf: &'a mut [u8],
@@ -126,6 +128,7 @@ pub enum ReadErrorKind {
     UnexpectedValue,
 }
 
+/// An error returned by a Reader when deserialization fails
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadError {
     msg: &'static str,
@@ -138,6 +141,7 @@ impl ReadError {
     }
 }
 
+/// The mechanism used  for deserializing SPDM messages
 pub struct Reader<'a> {
     msg: &'static str,
     buf: &'a [u8],
@@ -150,6 +154,7 @@ impl<'a> Reader<'a> {
         Reader { msg, buf, byte_offset: 0, bit_offset: 0 }
     }
 
+    /// Return the next byte in the buffer and advance the cursor.
     pub fn get_byte(&mut self) -> Result<u8, ReadError> {
         if !self.is_aligned() {
             return Err(self.err(ReadErrorKind::Unaligned));
@@ -162,6 +167,9 @@ impl<'a> Reader<'a> {
         Ok(b)
     }
 
+    /// Skip over the next `num_bytes` in the buffer.
+    ///
+    /// Ensure that these bytes are set to 0.
     pub fn skip_reserved(&mut self, num_bytes: u8) -> Result<(), ReadError> {
         for _ in 0..num_bytes {
             let byte = self.get_byte()?;
@@ -172,6 +180,8 @@ impl<'a> Reader<'a> {
         Ok(())
     }
 
+    /// Skip over the next `num_bytes` in the buffer without checking their
+    /// value.
     pub fn skip_ignored(&mut self, num_bytes: u8) -> Result<(), ReadError> {
         for _ in 0..num_bytes {
             self.get_byte()?;
@@ -222,6 +232,7 @@ impl<'a> Reader<'a> {
         }
     }
 
+    /// Get the next bit in the buffer.
     pub fn get_bit(&mut self) -> Result<u8, ReadError> {
         self.get_bits(1)
     }
@@ -279,18 +290,22 @@ impl<'a> Reader<'a> {
         Ok(u32::from_le_bytes(*buf))
     }
 
+    /// Get the current cursor position of the buffer being read
     pub fn byte_offset(&self) -> usize {
         self.byte_offset
     }
 
+    /// Return the number of bytes left in the buffer
     pub fn remaining(&self) -> usize {
         self.buf.len() - self.byte_offset
     }
 
+    /// Return true if there are no bytes left ro read in the buffer.
     pub fn is_empty(&self) -> bool {
         self.buf.len() == self.byte_offset
     }
 
+    /// Return true if reads are currently on a byte boundary
     pub fn is_aligned(&self) -> bool {
         self.bit_offset == 0
     }

@@ -21,13 +21,16 @@ pub struct State {
 }
 
 impl State {
+    /// Create a new capabilities::State
     pub fn new() -> State {
         State::default()
     }
 
-    // GetVersion and GetCapabilities messages are valid here.
-    //
-    // The caller passes in the set of supported capabilities
+    /// Handle a message from a requester
+    ///
+    /// Only GetVersion and GetCapabilities messages are valid here.
+    ///
+    /// The caller passes in the set of supported capabilities
     pub fn handle_msg(
         mut self,
         supported: Capabilities,

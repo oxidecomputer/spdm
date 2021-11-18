@@ -10,13 +10,15 @@ use ring::rand::SystemRandom;
 use crate::msgs::algorithms::BaseAsymAlgo;
 
 // Opaque error type
+//
+//
 #[derive(Debug)]
 pub struct Error {}
 
-// The simplest possible trait to represent a signature.
+// Providers implement this trait to represent a digital signature.
 pub trait Signature: AsRef<[u8]> {}
 
-/// Providers implement this trait to generate digital signatures
+/// Providers implement this trait to generate digital signatures.
 pub trait Signer {
     type Signature: Signature;
 
@@ -40,7 +42,7 @@ fn spdm_to_ring(algorithm: BaseAsymAlgo) -> &'static EcdsaSigningAlgorithm {
 /// This is explicitly not part of a trait, as a HW module would not take a
 /// private key. The application level software should call this function.
 ///
-// TODO: Use features, as this only supports `ring` now
+/// TODO: Hide this behind a feature
 pub fn new_signer(
     algorithm: BaseAsymAlgo,
     private_key: &[u8],
@@ -49,9 +51,9 @@ pub fn new_signer(
     RingSigner::new(algorithm, private_key)
 }
 
-/// A signer backed by ring
+/// A Signer backed by ring
 ///
-// TODO: Put behind a feature
+/// TODO: Put behind a feature
 pub struct RingSigner {
     key_pair: EcdsaKeyPair,
     rng: SystemRandom,

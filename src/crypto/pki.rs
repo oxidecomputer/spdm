@@ -54,7 +54,7 @@ pub trait EndEntityCert<'a> {
 // Note that we map a specific curve to a single hash function, which
 // matches the spirit of TLS 1.3 and also fits the signature sizes expected
 // in the `BaseAsymAlgo` description of the `NEGOTIATE_ALGORITHMS` message.
-pub fn spdm_to_webpki(
+fn spdm_to_webpki(
     algo: BaseAsymAlgo,
 ) -> &'static webpki::SignatureAlgorithm {
     match algo {
