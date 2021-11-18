@@ -250,7 +250,6 @@ const fn max_encoded_size() -> usize {
 // Return the number of bytes needed to DER encode the length a value.
 // We assume values no larger than 2^16 bytes require encoding.
 const fn der_length(size: usize) -> usize {
-    assert!(size < 65536);
     if size < 128 {
         1
     } else if size < 256 {
