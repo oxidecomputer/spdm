@@ -1,3 +1,5 @@
+use core::fmt::{self, Display, Formatter};
+
 use crate::crypto::pki;
 use crate::msgs::{ReadError, Version, WriteError};
 
@@ -40,5 +42,38 @@ impl From<ReadError> for RequesterError {
 impl From<pki::Error> for RequesterError {
     fn from(_: pki::Error) -> Self {
         RequesterError::InvalidCert
+    }
+}
+
+impl Display for RequesterError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            RequesterError::Write(e) => e.fmt(f),
+            RequesterError::Read(e) => e.fmt(f),
+            // TODO: print message name and not just code
+            RequesterError::UnexpectedMsg { expected, got } => {
+                write!(
+                    f,
+                    "unexpected msg: (expected: {}, got code: {})",
+                    expected, got
+                )
+            }
+            RequesterError::NoSupportedVersions { received } => {
+                write!(f, "no supported versions received: {:#?}", received)
+            }
+            RequesterError::SelectedAlgorithmNotRequested => {
+                write!(
+                    f,
+                    "the responder selected an algorithm that the
+requester does not support"
+                )
+            }
+            RequesterError::BadChallengeAuth => {
+                write!(f, "challenge authentication failed")
+            }
+            RequesterError::InvalidCert => {
+                write!(f, "invalid certificate")
+            }
+        }
     }
 }

@@ -1,3 +1,5 @@
+use core::fmt::{self, Display, Formatter};
+
 use crate::msgs::{ReadError, WriteError};
 
 /// An error returned by a responder state
@@ -13,7 +15,7 @@ pub enum ResponderError {
     InvalidSlot,
 
     // For some reason signing failed. This could be caused by a HW failure.
-    SigningFailed
+    SigningFailed,
 }
 
 impl From<WriteError> for ResponderError {
@@ -25,5 +27,30 @@ impl From<WriteError> for ResponderError {
 impl From<ReadError> for ResponderError {
     fn from(e: ReadError) -> Self {
         ResponderError::Read(e)
+    }
+}
+
+impl Display for ResponderError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            ResponderError::Write(e) => e.fmt(f),
+            ResponderError::Read(e) => e.fmt(f),
+
+            // TODO: print message name and not just code
+            ResponderError::UnexpectedMsg { expected, got } => {
+                write!(
+                    f,
+                    "unexpected msg: (expected: {}, got code: {})",
+                    expected, got
+                )
+            },
+
+            ResponderError::InvalidSlot => {
+                write!(f, "the requested slot does not contain a certificate")
+            },
+            ResponderError::SigningFailed => {
+                write!(f, "signing failed")
+            }
+        }
     }
 }

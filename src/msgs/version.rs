@@ -105,7 +105,7 @@ impl Version {
         if num_entries > MAX_ALLOWED_VERSIONS {
             return Err(ReadError::new(
                 Self::NAME,
-                ReadErrorKind::TooManyEntries,
+                ReadErrorKind::ImplementationLimitReached,
             ));
         }
 

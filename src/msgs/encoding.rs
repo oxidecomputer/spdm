@@ -1,15 +1,26 @@
 use core::convert::TryInto;
+use core::fmt::{self, Display, Formatter};
 
 /// An error returned by a `Writer` when serialization fails.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WriteError {
-    msg: &'static str,
-    buf_size: usize,
+    pub msg: &'static str,
+    pub buf_size: usize,
 }
 
 impl WriteError {
     pub fn new(msg: &'static str, buf_size: usize) -> WriteError {
         WriteError { msg, buf_size }
+    }
+}
+
+impl Display for WriteError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "failed to serialize {} into buffer of size {}",
+            self.msg, self.buf_size
+        )
     }
 }
 
@@ -106,9 +117,8 @@ pub enum ReadErrorKind {
 
     /// An attempt to read more than 7 bits in get_bits
     TooManyBits,
-    TooManyEntries,
 
-    /// An attempt to convert a type via std::convert::TryInto failed. This
+    /// An attempt to convert a type via core::convert::TryInto failed. This
     /// should *never* happen.
     TypeConversionFailed,
 
@@ -128,16 +138,47 @@ pub enum ReadErrorKind {
     UnexpectedValue,
 }
 
+impl ReadErrorKind {
+    fn as_str(&self) -> &'static str {
+        match self {
+            ReadErrorKind::Header => "invalid header",
+            ReadErrorKind::Empty => "read buffer is empty",
+            ReadErrorKind::ReservedByteNotZero => {
+                "reserved byte was not set to 0"
+            }
+            ReadErrorKind::Unaligned => {
+                "byte read attempted on a non-byte boundary"
+            }
+            ReadErrorKind::TooManyBits => "attempt to read more than 7 bits",
+            ReadErrorKind::TypeConversionFailed => "type conversion failed",
+            ReadErrorKind::InvalidBitsSet => "invalid bits set",
+            ReadErrorKind::TooManyBitsSet => "more than one bit set",
+            ReadErrorKind::SpdmLimitReached => "SPDM protocol limit exceeded",
+            ReadErrorKind::ImplementationLimitReached => {
+                "implementation limit
+exceeded"
+            }
+            ReadErrorKind::UnexpectedValue => "unexpected value",
+        }
+    }
+}
+
 /// An error returned by a Reader when deserialization fails
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadError {
-    msg: &'static str,
-    kind: ReadErrorKind,
+    pub msg: &'static str,
+    pub kind: ReadErrorKind,
 }
 
 impl ReadError {
     pub fn new(msg: &'static str, kind: ReadErrorKind) -> ReadError {
         ReadError { msg, kind }
+    }
+}
+
+impl Display for ReadError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "failed to deserialize {}: {}", self.msg, self.kind.as_str())
     }
 }
 
