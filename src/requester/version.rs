@@ -4,7 +4,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
 
-use super::{capabilities,  RequesterError, expect};
+use super::{capabilities, expect, RequesterError};
 use crate::msgs::{GetVersion, Msg, Version, VersionEntry, HEADER_SIZE};
 use crate::Transcript;
 
@@ -65,5 +65,4 @@ impl State {
             Some(found)
         }
     }
-
 }

@@ -6,7 +6,7 @@
 
 use core::convert::From;
 
-use super::{capabilities, id_auth, RequesterError, expect};
+use super::{capabilities, expect, id_auth, RequesterError};
 use crate::msgs::algorithms::{AlgorithmRequest, AlgorithmResponse};
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
 use crate::msgs::{

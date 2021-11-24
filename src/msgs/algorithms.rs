@@ -36,7 +36,7 @@ impl BaseAsymAlgo {
             A::RSASSA_4096 | A::RSAPSS_4096 => 512,
             A::ECDSA_ECC_NIST_P384 => 96,
             A::ECDSA_ECC_NIST_P521 => 132,
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }

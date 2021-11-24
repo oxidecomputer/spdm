@@ -16,9 +16,9 @@
 
 pub mod algorithms;
 pub mod capabilities;
+pub mod challenge;
 pub mod id_auth;
 pub mod version;
-pub mod challenge;
 
 mod error;
 
