@@ -6,7 +6,7 @@ use super::{capabilities, expect, id_auth, ResponderError};
 use crate::msgs::algorithms::*;
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
 use crate::msgs::{Msg, HEADER_SIZE};
-use crate::{Transcript, reset_on_get_version};
+use crate::{reset_on_get_version, Transcript};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Transition {

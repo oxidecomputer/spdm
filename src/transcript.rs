@@ -2,8 +2,8 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use crate::msgs::WriteError;
 use crate::config::TRANSCRIPT_SIZE;
+use crate::msgs::WriteError;
 
 /// A `Transcript` is used to track contigous operations for measurement
 /// purposes.

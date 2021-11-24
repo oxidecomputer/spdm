@@ -47,11 +47,11 @@ impl Display for ResponderError {
                     "unexpected msg: (expected: {}, got code: {})",
                     expected, got
                 )
-            },
+            }
 
             ResponderError::InvalidSlot => {
                 write!(f, "the requested slot does not contain a certificate")
-            },
+            }
             ResponderError::SigningFailed => {
                 write!(f, "signing failed")
             }
