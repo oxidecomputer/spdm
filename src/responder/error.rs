@@ -1,8 +1,6 @@
-//
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
-//
 
 use core::fmt::{self, Display, Formatter};
 
@@ -49,11 +47,11 @@ impl Display for ResponderError {
                     "unexpected msg: (expected: {}, got code: {})",
                     expected, got
                 )
-            }
+            },
 
             ResponderError::InvalidSlot => {
                 write!(f, "the requested slot does not contain a certificate")
-            }
+            },
             ResponderError::SigningFailed => {
                 write!(f, "signing failed")
             }

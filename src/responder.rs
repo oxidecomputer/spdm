@@ -1,8 +1,6 @@
-//
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
-//
 
 //! A responder follows the typestate pattern
 //! <https://cliffle.com/blog/rust-typestate/>
@@ -16,9 +14,9 @@
 
 pub mod algorithms;
 pub mod capabilities;
-pub mod challenge;
 pub mod id_auth;
 pub mod version;
+pub mod challenge;
 
 mod error;
 

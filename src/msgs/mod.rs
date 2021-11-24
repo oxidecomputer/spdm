@@ -1,8 +1,6 @@
-//
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
-//
 
 //! The `msgs` module contains all messages defined by the SPDM specification.
 //!
@@ -17,20 +15,20 @@
 
 pub mod algorithms;
 pub mod capabilities;
-pub mod certificates;
-pub mod challenge;
-pub mod digest;
 pub mod encoding;
 pub mod version;
+pub mod digest;
+pub mod certificates;
+pub mod challenge;
 
-pub use algorithms::{Algorithms, NegotiateAlgorithms};
-pub use capabilities::{Capabilities, GetCapabilities};
-pub use certificates::{Certificate, CertificateChain, GetCertificate};
-pub use challenge::{Challenge, ChallengeAuth, MeasurementHashType};
-pub use digest::{Digests, GetDigests};
 use encoding::Writer;
 pub use encoding::{ReadError, ReadErrorKind, WriteError};
 pub use version::{GetVersion, Version, VersionEntry};
+pub use capabilities::{GetCapabilities, Capabilities};
+pub use algorithms::{NegotiateAlgorithms, Algorithms};
+pub use digest::{GetDigests, Digests};
+pub use certificates::{GetCertificate, Certificate, CertificateChain};
+pub use challenge::{Challenge, ChallengeAuth, MeasurementHashType};
 
 pub const HEADER_SIZE: usize = 2;
 

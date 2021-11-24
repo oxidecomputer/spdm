@@ -1,8 +1,6 @@
-//
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
-//
 
 use super::encoding::{ReadError, ReadErrorKind, Reader, WriteError, Writer};
 use super::Msg;
@@ -36,7 +34,7 @@ impl BaseAsymAlgo {
             A::RSASSA_4096 | A::RSAPSS_4096 => 512,
             A::ECDSA_ECC_NIST_P384 => 96,
             A::ECDSA_ECC_NIST_P521 => 132,
-            _ => unreachable!(),
+            _ => unreachable!()
         }
     }
 }

@@ -1,14 +1,12 @@
-//
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
-//
 
 use super::{capabilities, expect, id_auth, ResponderError};
 use crate::msgs::algorithms::*;
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
 use crate::msgs::{Msg, HEADER_SIZE};
-use crate::{reset_on_get_version, Transcript};
+use crate::{Transcript, reset_on_get_version};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Transition {
