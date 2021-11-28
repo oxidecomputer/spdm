@@ -10,12 +10,12 @@ pub struct State {}
 
 impl State {
     /// Handle the initial message from a SPDM requester: GET_VERSION
-    pub fn handle_msg(
+    pub fn handle_msg<'a>(
         self,
         req: &[u8],
-        rsp: &mut [u8],
+        rsp: &'a mut [u8],
         transcript: &mut Transcript,
-    ) -> Result<(usize, capabilities::State), ResponderError> {
+    ) -> Result<(&'a [u8], capabilities::State), ResponderError> {
         match GetVersion::parse_header(req) {
             Ok(true) => self.handle_get_version(req, rsp, transcript),
             Ok(false) => Err(ResponderError::UnexpectedMsg {
@@ -26,12 +26,12 @@ impl State {
         }
     }
 
-    fn handle_get_version(
+    fn handle_get_version<'a>(
         self,
         req: &[u8],
-        rsp: &mut [u8],
+        rsp: &'a mut [u8],
         transcript: &mut Transcript,
-    ) -> Result<(usize, capabilities::State), ResponderError> {
+    ) -> Result<(&'a [u8], capabilities::State), ResponderError> {
         let _ = GetVersion::parse_body(&req[HEADER_SIZE..])?;
 
         // A GetVersion msg always resets the state of the protocol
@@ -41,6 +41,6 @@ impl State {
         let size = Version::default().write(rsp)?;
         transcript.extend(&rsp[..size])?;
 
-        Ok((size, capabilities::State::new()))
+        Ok((&rsp[..size], capabilities::State::new()))
     }
 }

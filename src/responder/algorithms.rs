@@ -40,12 +40,12 @@ impl State {
     /// Handle a message from a requester
     ///
     /// Only GetVersion and NegotiateAlgorithms messages are valid here.
-    pub fn handle_msg(
+    pub fn handle_msg<'a>(
         mut self,
         req: &[u8],
-        rsp: &mut [u8],
+        rsp: &'a mut [u8],
         transcript: &mut Transcript,
-    ) -> Result<(usize, Transition), ResponderError> {
+    ) -> Result<(&'a [u8], Transition), ResponderError> {
         reset_on_get_version!(req, rsp, transcript);
         expect::<NegotiateAlgorithms>(req)?;
 
@@ -57,7 +57,7 @@ impl State {
         transcript.extend(&rsp[..size])?;
         self.algorithms = Some(algorithms);
 
-        Ok((size, Transition::IdAuth(self.into())))
+        Ok((&rsp[..size], Transition::IdAuth(self.into())))
     }
 
     // We use the simplest mechanism possible here and just choose the first set

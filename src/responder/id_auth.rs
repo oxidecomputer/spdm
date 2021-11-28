@@ -64,13 +64,13 @@ impl State {
     ///
     /// Only GET_VERSION, GET_DIGESTS, and GET_CERTIFICATE messsages are
     /// allowed.
-    pub fn handle_msg<'a, C: Config>(
+    pub fn handle_msg<'a, 'b, C: Config>(
         self,
         cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
         req: &[u8],
-        rsp: &mut [u8],
+        rsp: &'b mut [u8],
         transcript: &mut Transcript,
-    ) -> Result<(usize, Transition), ResponderError> {
+    ) -> Result<(&'b [u8], Transition), ResponderError> {
         reset_on_get_version!(req, rsp, transcript);
 
         if GetDigests::parse_header(req)? {
@@ -88,13 +88,13 @@ impl State {
         self.handle_get_certificate(cert_chains, req, rsp, transcript)
     }
 
-    fn handle_get_certificate<'a>(
+    fn handle_get_certificate<'a, 'b>(
         self,
         cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
         req: &[u8],
-        rsp: &mut [u8],
+        rsp: &'b mut [u8],
         transcript: &mut Transcript,
-    ) -> Result<(usize, Transition), ResponderError> {
+    ) -> Result<(&'b [u8], Transition), ResponderError> {
         let get_cert = GetCertificate::parse_body(&req[HEADER_SIZE..])?;
         if get_cert.slot as usize >= NUM_SLOTS {
             return Err(ReadError::new(
@@ -124,16 +124,16 @@ impl State {
         transcript.extend(req)?;
         transcript.extend(&rsp[..size])?;
 
-        Ok((size, Transition::Challenge(self.into())))
+        Ok((&rsp[..size], Transition::Challenge(self.into())))
     }
 
-    fn handle_get_digests<'a, C: Config>(
+    fn handle_get_digests<'a, 'b, C: Config>(
         self,
         cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
         req: &[u8],
-        rsp: &mut [u8],
+        rsp: &'b mut [u8],
         transcript: &mut Transcript,
-    ) -> Result<(usize, Transition), ResponderError> {
+    ) -> Result<(&'b [u8], Transition), ResponderError> {
         let slot_mask = create_slot_mask(cert_chains);
         let digests = self.hash_cert_chains::<C>(cert_chains)?;
         let digest_size =
@@ -144,7 +144,7 @@ impl State {
         transcript.extend(req)?;
         transcript.extend(&rsp[..size])?;
 
-        Ok((size, Transition::IdAuth(self)))
+        Ok((&rsp[..size], Transition::IdAuth(self)))
     }
 
     fn hash_cert_chains<'a, C: Config>(

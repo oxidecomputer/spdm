@@ -49,14 +49,14 @@ impl State {
     /// Handle a message from a requester
     ///
     /// Only CHALLENGE and GET_VERSION msgs are allowed here.
-    pub fn handle_msg<'a, C: Config, S: Signer>(
+    pub fn handle_msg<'a, 'b, C: Config, S: Signer>(
         self,
         cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
         signer: &S,
         req: &[u8],
-        rsp: &mut [u8],
+        rsp: &'b mut [u8],
         transcript: &mut Transcript,
-    ) -> Result<(usize, Transition), ResponderError> {
+    ) -> Result<(&'b [u8], Transition), ResponderError> {
         reset_on_get_version!(req, rsp, transcript);
         expect::<Challenge>(req)?;
         let digest_size =
@@ -125,6 +125,6 @@ impl State {
         // Attach the real signature to the CHALLENGE_AUTH message
         rsp[sig_start..size].copy_from_slice(signature.as_ref());
 
-        Ok((size, Transition::Placeholder))
+        Ok((&rsp[..size], Transition::Placeholder))
     }
 }

@@ -25,17 +25,17 @@ impl State {
     }
 
     /// Write the `msg` into `buf` and record it in `transcript`.
-    pub fn write_msg(
+    pub fn write_msg<'a>(
         &mut self,
         msg: &GetCapabilities,
-        buf: &mut [u8],
+        buf: &'a mut [u8],
         transcript: &mut Transcript,
-    ) -> Result<usize, RequesterError> {
+    ) -> Result<&'a [u8], RequesterError> {
         let size = msg.write(buf)?;
         transcript.extend(&buf[..size])?;
         self.requester_ct_exponent = Some(msg.ct_exponent);
         self.requester_cap = Some(msg.flags);
-        Ok(size)
+        Ok(&buf[..size])
     }
 
     /// Only `Capabilities` messages are acceptable here.

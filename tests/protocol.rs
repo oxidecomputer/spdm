@@ -134,31 +134,29 @@ fn negotiate_versions(
     let rsp_state = responder::start();
 
     // Create a version request and write it into the request buffer
-    let req_size = req_state
+    let req_data = req_state
         .write_get_version(&mut data.req_buf, &mut data.req_transcript)
         .unwrap();
 
     // The message is appended to the transcript
-    assert_eq!(&data.req_buf[..req_size], data.req_transcript.get());
+    assert_eq!(req_data, data.req_transcript.get());
 
     // In a real system the messge would be sent over a transport.
     // Directly call the responder message handler here instead as if the
     // message was delivered. Message slices must be exact sized when calling
     // `handle_msg` methods.
-    let (rsp_size, rsp_state) = rsp_state
-        .handle_msg(
-            &data.req_buf[..req_size],
-            &mut data.rsp_buf,
-            &mut data.rsp_transcript,
-        )
+    let (rsp_data, rsp_state) = rsp_state
+        .handle_msg(req_data, &mut data.rsp_buf, &mut data.rsp_transcript)
         .unwrap();
 
     // The responder transitions to `capabilities::State`
     assert_eq!(responder::capabilities::State::new(), rsp_state);
 
     // The request and response are appended to the transcript
-    assert_eq!(data.req_buf[..req_size], data.rsp_transcript.get()[..req_size]);
-    assert_eq!(data.rsp_buf[..rsp_size], data.rsp_transcript.get()[req_size..]);
+    let req_size = req_data.len();
+    let rsp_size = rsp_data.len();
+    assert_eq!(req_data, &data.rsp_transcript.get()[..req_size]);
+    assert_eq!(rsp_data, &data.rsp_transcript.get()[req_size..]);
     assert_eq!(req_size + rsp_size, data.rsp_transcript.len());
 
     // Take the response and deliver it to the requester
@@ -202,7 +200,7 @@ fn negotiate_capabilities(
 
     // Serialize the GetCapabilities  message to send to the responder and
     // update the transcript.
-    let req_size = req_state
+    let req_data = req_state
         .write_msg(&req, &mut data.req_buf, &mut data.req_transcript)
         .unwrap();
 
@@ -221,13 +219,8 @@ fn negotiate_capabilities(
     };
 
     // Let the responder handle the message.
-    let (rsp_size, transition) = rsp_state
-        .handle_msg(
-            rsp,
-            &data.req_buf[..req_size],
-            &mut data.rsp_buf,
-            &mut data.rsp_transcript,
-        )
+    let (rsp_data, transition) = rsp_state
+        .handle_msg(rsp, req_data, &mut data.rsp_buf, &mut data.rsp_transcript)
         .unwrap();
 
     // The responder transitions to `algorithms::State`
@@ -241,9 +234,8 @@ fn negotiate_capabilities(
         };
 
     // Deliver the response to the requester
-    let req_state = req_state
-        .handle_msg(&data.rsp_buf[..rsp_size], &mut data.req_transcript)
-        .unwrap();
+    let req_state =
+        req_state.handle_msg(rsp_data, &mut data.req_transcript).unwrap();
 
     // The requester transitions to `algorithms::State`
 
@@ -287,17 +279,13 @@ fn negotiate_algorithms(
     };
 
     // Serialize the request
-    let req_size = req_state
+    let req_data = req_state
         .write_msg(req, &mut data.req_buf, &mut data.req_transcript)
         .unwrap();
 
     // Deliver the request to the responder
-    let (rsp_size, transition) = rsp_state
-        .handle_msg(
-            &data.req_buf[..req_size],
-            &mut data.rsp_buf,
-            &mut data.rsp_transcript,
-        )
+    let (rsp_data, transition) = rsp_state
+        .handle_msg(req_data, &mut data.rsp_buf, &mut data.rsp_transcript)
         .unwrap();
 
     // The responder transitions to `requester_id_auth::State`
@@ -311,7 +299,7 @@ fn negotiate_algorithms(
     // Deliver the response to the requester.
     let req_state = req_state
         .handle_msg::<NUM_SLOTS, MAX_CERT_CHAIN_SIZE>(
-            &data.rsp_buf[..rsp_size],
+            rsp_data,
             &mut data.req_transcript,
         )
         .unwrap();
@@ -373,15 +361,15 @@ fn identify_responder<'a>(
     cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
 ) -> (requester::challenge::State, responder::challenge::State) {
     // Generate the GET_DIGESTS request at the requester
-    let req_size = req_state
+    let req_data = req_state
         .write_get_digests_msg(&mut data.req_buf, &mut data.req_transcript)
         .unwrap();
 
     // Handle the GET_DIGESTS request at the responder
-    let (rsp_size, transition) = rsp_state
+    let (rsp_data, transition) = rsp_state
         .handle_msg::<TestConfig>(
             cert_chains,
-            &data.req_buf[..req_size],
+            req_data,
             &mut data.rsp_buf,
             &mut data.rsp_transcript,
         )
@@ -396,9 +384,7 @@ fn identify_responder<'a>(
         };
 
     // Handle the DIGESTS response at the requester
-    req_state
-        .handle_digests(&data.rsp_buf[..rsp_size], &mut data.req_transcript)
-        .unwrap();
+    req_state.handle_digests(rsp_data, &mut data.req_transcript).unwrap();
 
     assert_eq!(data.req_transcript.get(), data.rsp_transcript.get());
 
@@ -411,7 +397,7 @@ fn identify_responder<'a>(
 
     // Get the first cert chain (slot 0 always exists)
     let slot = 0;
-    let req_size = req_state
+    let req_data = req_state
         .write_get_certificate_msg(
             slot,
             &mut data.req_buf,
@@ -420,10 +406,10 @@ fn identify_responder<'a>(
         .unwrap();
 
     // Handle the GET_CERTIFICATE request at the responder
-    let (rsp_size, transition) = rsp_state
+    let (rsp_data, transition) = rsp_state
         .handle_msg::<TestConfig>(
             &cert_chains,
-            &data.req_buf[..req_size],
+            req_data,
             &mut data.rsp_buf,
             &mut data.rsp_transcript,
         )
@@ -440,7 +426,7 @@ fn identify_responder<'a>(
 
     // Handle the CERTIFICATE response at the requester
     let req_state = req_state
-        .handle_certificate(&data.rsp_buf[..rsp_size], &mut data.req_transcript)
+        .handle_certificate(rsp_data, &mut data.req_transcript)
         .unwrap();
 
     assert_eq!(data.req_transcript.get(), data.rsp_transcript.get());
@@ -456,7 +442,7 @@ fn challenge_auth<'a>(
     certs: &[Certs],
 ) {
     // Create the CHALLENGE request at the requester
-    let req_size = req_state
+    let req_data = req_state
         .write_challenge_msg(
             msgs::MeasurementHashType::None,
             &mut data.req_buf,
@@ -478,11 +464,11 @@ fn challenge_auth<'a>(
             .unwrap();
 
     // Handle the CHALLENGE request at the responder
-    let (rsp_size, transition) = rsp_state
+    let (rsp_data, transition) = rsp_state
         .handle_msg::<TestConfig, RingSigner>(
             cert_chains,
             &signer,
-            &data.req_buf[..req_size],
+            req_data,
             &mut data.rsp_buf,
             &mut data.rsp_transcript,
         )
@@ -496,7 +482,7 @@ fn challenge_auth<'a>(
     // Deliver the response to the requester
     let transition = req_state
         .handle_msg::<TestConfig>(
-            &data.rsp_buf[..rsp_size],
+            rsp_data,
             &mut data.req_transcript,
             root_cert,
             expiry(),

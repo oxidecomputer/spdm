@@ -58,17 +58,17 @@ impl From<id_auth::State> for State {
 
 impl State {
     /// Write a CHALLENGE msg to the buffer, and append it to the transcript.
-    pub fn write_challenge_msg(
+    pub fn write_challenge_msg<'a>(
         &mut self,
         measurement_hash_type: MeasurementHashType,
-        buf: &mut [u8],
+        buf: &'a mut [u8],
         transcript: &mut Transcript,
-    ) -> Result<usize, RequesterError> {
+    ) -> Result<&'a [u8], RequesterError> {
         let challenge = Challenge::new(self.cert_slot, measurement_hash_type);
         self.nonce = challenge.nonce;
         let size = challenge.write(buf).map_err(|e| RequesterError::from(e))?;
         transcript.extend(&buf[..size])?;
-        Ok(size)
+        Ok(&buf[..size])
     }
 
     /// Process a received responder message.

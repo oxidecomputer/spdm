@@ -41,16 +41,16 @@ impl From<capabilities::State> for State {
 impl State {
     /// Serialize a NEGOTIATE_ALGORITHMS request and append it to the
     /// transcript
-    pub fn write_msg(
+    pub fn write_msg<'a>(
         &mut self,
         msg: NegotiateAlgorithms,
-        buf: &mut [u8],
+        buf: &'a mut [u8],
         transcript: &mut Transcript,
-    ) -> Result<usize, RequesterError> {
+    ) -> Result<&'a [u8], RequesterError> {
         let size = msg.write(buf)?;
         self.negotiate_algorithms = Some(msg);
         transcript.extend(&buf[..size])?;
-        Ok(size)
+        Ok(&buf[..size])
     }
 
     /// Only `Algorithms` messsages are acceptable here.
