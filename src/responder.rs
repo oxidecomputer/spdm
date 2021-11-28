@@ -42,10 +42,10 @@ macro_rules! reset_on_get_version {
         match GetVersion::parse_header($req) {
             Ok(true) => {
                 // Go back to the beginning!
-                let (size, cap_state) =
+                let (data, cap_state) =
                     version::State {}.handle_msg($req, $rsp, $transcript)?;
 
-                return Ok((size, Transition::Capabilities(cap_state)));
+                return Ok((data, Transition::Capabilities(cap_state)));
             }
             Err(e) => return Err(e.into()),
             _ => (),

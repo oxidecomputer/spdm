@@ -35,13 +35,13 @@ impl State {
     /// Only GetVersion and GetCapabilities messages are valid here.
     ///
     /// The caller passes in the set of supported capabilities
-    pub fn handle_msg(
+    pub fn handle_msg<'a>(
         mut self,
         supported: Capabilities,
         req: &[u8],
-        rsp: &mut [u8],
+        rsp: &'a mut [u8],
         transcript: &mut Transcript,
-    ) -> Result<(usize, Transition), ResponderError> {
+    ) -> Result<(&'a [u8], Transition), ResponderError> {
         reset_on_get_version!(req, rsp, transcript);
         expect::<GetCapabilities>(req)?;
 
@@ -55,6 +55,6 @@ impl State {
         self.responder_ct_exponent = Some(supported.ct_exponent);
         self.responder_cap = Some(supported.flags);
 
-        Ok((size, Transition::Algorithms(self.into())))
+        Ok((&rsp[..size], Transition::Algorithms(self.into())))
     }
 }

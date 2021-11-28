@@ -63,14 +63,14 @@ impl State {
     /// TODO: We can probably shrink the transcript to the size of a hash at
     /// this point, since we know the hashing algorithm and can just maintain an
     /// incremental hash. For now, we just continue appending the raw data.
-    pub fn write_get_digests_msg(
+    pub fn write_get_digests_msg<'a>(
         &mut self,
-        buf: &mut [u8],
+        buf: &'a mut [u8],
         transcript: &mut Transcript,
-    ) -> Result<usize, RequesterError> {
+    ) -> Result<&'a [u8], RequesterError> {
         let size = GetDigests {}.write(buf)?;
         transcript.extend(&buf[..size])?;
-        Ok(size)
+        Ok(&buf[..size])
     }
 
     /// Handle a DIGESTS msg.
@@ -94,12 +94,12 @@ impl State {
 
     /// Write a GET_CERTIFICATE msg to the buffer and record it in the
     /// transcript.
-    pub fn write_get_certificate_msg(
+    pub fn write_get_certificate_msg<'a>(
         &mut self,
         slot: u8,
-        buf: &mut [u8],
+        buf: &'a mut [u8],
         transcript: &mut Transcript,
-    ) -> Result<usize, RequesterError> {
+    ) -> Result<&'a [u8], RequesterError> {
         assert!(MAX_CERT_CHAIN_SIZE < 65536);
         assert!((slot as usize) < NUM_SLOTS);
         // TODO: Allow retrieiving cert chains from offsets. We assume for now
@@ -111,7 +111,7 @@ impl State {
         };
         let size = msg.write(buf)?;
         transcript.extend(&buf[..size])?;
-        Ok(size)
+        Ok(&buf[..size])
     }
 
     // Handle a CERTFICATE msg.

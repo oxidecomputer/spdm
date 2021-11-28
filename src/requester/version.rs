@@ -11,17 +11,17 @@ pub struct State {}
 
 impl State {
     /// Serialize a get version message into `buf` and append it to `transcript`
-    pub fn write_get_version(
+    pub fn write_get_version<'a>(
         &self,
-        buf: &mut [u8],
+        buf: &'a mut [u8],
         transcript: &mut Transcript,
-    ) -> Result<usize, RequesterError> {
+    ) -> Result<&'a [u8], RequesterError> {
         let size = GetVersion {}.write(buf)?;
 
         // A GetVersion msg always resets the state of the protocol.
         transcript.clear();
         transcript.extend(&buf[..size])?;
-        Ok(size)
+        Ok(&buf[..size])
     }
 
     // Only Version messages are acceptable here.
