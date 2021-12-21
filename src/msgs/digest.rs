@@ -158,7 +158,7 @@ mod tests {
     use super::*;
 
     fn test_digest(magic: u8) -> DigestBuf {
-        DigestBuf { buf: [magic; 64] }
+        DigestBuf { buf: [magic; MAX_DIGEST_SIZE] }
     }
 
     fn test_digests() -> [DigestBuf; 8] {
@@ -265,7 +265,7 @@ mod tests {
     fn round_trip_digest_48_0x2_mask() {
         let digest_size = 48;
         let mut digests = [DigestBuf::default(); 8];
-        digests[1] = DigestBuf { buf: [2; 64] };
+        digests[1] = DigestBuf { buf: [2; MAX_DIGEST_SIZE] };
         let d = Digests { digest_size: 48, slot_mask: 0x2, digests };
 
         let mut buf = [0u8; 52];

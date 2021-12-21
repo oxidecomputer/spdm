@@ -12,6 +12,9 @@ pub trait Digest: AsRef<[u8]> {
     fn hash(algorithm: BaseHashAlgo, buf: &[u8]) -> Self;
 }
 
+// TODO: put this behind a feature
+pub type DigestImpl = RingDigest;
+
 /// A Ring based implementation of a Digest
 ///
 // TODO: Put this behind a feature

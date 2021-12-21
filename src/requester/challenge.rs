@@ -5,9 +5,9 @@
 use core::convert::From;
 
 use super::{expect, id_auth, RequesterError};
-use crate::config::{Config, MAX_CERT_CHAIN_SIZE};
+use crate::config::MAX_CERT_CHAIN_SIZE;
 use crate::crypto::{
-    digest::Digest,
+    digest::{Digest, DigestImpl},
     pki::{new_end_entity_cert, EndEntityCert},
 };
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
@@ -74,7 +74,7 @@ impl State {
     /// Process a received responder message.
     ///
     /// Only CHALLENGE_AUTH msgs are acceptable here.
-    pub fn handle_msg<C: Config>(
+    pub fn handle_msg(
         self,
         buf: &[u8],
         transcript: &mut Transcript,
@@ -101,7 +101,7 @@ impl State {
         }
 
         // TODO: Handle pre-provisioned certs
-        let digest = C::Digest::hash(
+        let digest = DigestImpl::hash(
             hash_algo,
             &self.cert_chain[..self.cert_chain_size as usize],
         );
@@ -117,7 +117,7 @@ impl State {
         // ChallengeAuth response without the signature.
         let sig_start = buf.len() - signature_size;
         transcript.extend(&buf[..sig_start])?;
-        let m2_hash = C::Digest::hash(hash_algo, transcript.get());
+        let m2_hash = DigestImpl::hash(hash_algo, transcript.get());
 
         self.verify_cert_chain_and_signature(
             digest_size,

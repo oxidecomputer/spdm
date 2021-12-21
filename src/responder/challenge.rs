@@ -7,9 +7,12 @@ use core::convert::From;
 use super::{capabilities, expect, id_auth, ResponderError};
 
 use crate::config::{
-    Config, MAX_CERT_CHAIN_SIZE, MAX_DIGEST_SIZE, MAX_SIGNATURE_SIZE, NUM_SLOTS,
+    MAX_CERT_CHAIN_SIZE, MAX_DIGEST_SIZE, MAX_SIGNATURE_SIZE, NUM_SLOTS,
 };
-use crate::crypto::{digest::Digest, signing::Signer};
+use crate::crypto::{
+    digest::{Digest, DigestImpl},
+    signing::Signer,
+};
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
 use crate::msgs::{
     challenge::nonce, encoding::Writer, Algorithms, CertificateChain,
@@ -49,7 +52,7 @@ impl State {
     /// Handle a message from a requester
     ///
     /// Only CHALLENGE and GET_VERSION msgs are allowed here.
-    pub fn handle_msg<'a, 'b, C: Config, S: Signer>(
+    pub fn handle_msg<'a, 'b, S: Signer>(
         self,
         cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
         signer: &S,
@@ -71,7 +74,7 @@ impl State {
                 let mut buf = [0u8; MAX_CERT_CHAIN_SIZE];
                 let mut w = Writer::new("CERTIFICATE_CHAIN", &mut buf);
                 let size = chain.write(&mut w)?;
-                C::Digest::hash(
+                DigestImpl::hash(
                     self.algorithms.base_hash_algo_selected,
                     &buf[..size],
                 )
@@ -113,7 +116,7 @@ impl State {
         let sig_start = size - signature_size;
         transcript.extend(&rsp[..sig_start])?;
 
-        let m1_hash = C::Digest::hash(
+        let m1_hash = DigestImpl::hash(
             self.algorithms.base_hash_algo_selected,
             transcript.get(),
         );
