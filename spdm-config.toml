@@ -1,0 +1,16 @@
+# This file contains an example configuration.
+version = 0x11
+capabilities = ["CERT_CAP", "CHALLENGE_CAP", "ENCRYPT_CAP",  "MAC_CAP", "MUT_AUTH_CAP", "KEY_EX_CAP", "KEY_UPD_CAP"]
+
+[cert_chains]
+num_slots = 1
+buf_size = 1024
+max_depth = 4
+
+# A transcript contains all messages sent in a session, except application level messages.
+[transcript]
+buf_size = 4096
+
+[algorithms]
+asymmetric_signing = ["ECDSA_ECC_NIST_P256"]
+hash = ["SHA_256", "SHA_512"]

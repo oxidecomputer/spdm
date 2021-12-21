@@ -2,9 +2,9 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use spdm::config::{Config, MAX_CERT_CHAIN_SIZE, NUM_SLOTS};
+use spdm::config::{MAX_CERT_CHAIN_SIZE, NUM_SLOTS};
 use spdm::crypto::{
-    digest::{Digest, RingDigest},
+    digest::{Digest, DigestImpl},
     signing::{new_signer, RingSigner},
 };
 use spdm::msgs::algorithms::*;
@@ -21,12 +21,6 @@ use spdm::{msgs, Transcript};
 use test_utils::certs::*;
 
 use std::time::SystemTime;
-
-pub struct TestConfig {}
-
-impl Config for TestConfig {
-    type Digest = RingDigest;
-}
 
 const BUF_SIZE: usize = 2048;
 
@@ -61,7 +55,7 @@ struct Certs {
     pub intermediate_der: Vec<u8>,
     pub leaf_der: Vec<u8>,
     pub leaf_private_der: Vec<u8>,
-    pub root_hash: <TestConfig as Config>::Digest,
+    pub root_hash: DigestImpl,
 }
 
 impl Certs {
@@ -75,10 +69,7 @@ impl Certs {
             rcgen::Certificate::from_params(intermediate_params).unwrap();
         let leaf = rcgen::Certificate::from_params(leaf_params).unwrap();
         let root_der = root.serialize_der().unwrap();
-        let root_hash = <TestConfig as Config>::Digest::hash(
-            BaseHashAlgo::SHA_256,
-            &root_der,
-        );
+        let root_hash = DigestImpl::hash(BaseHashAlgo::SHA_256, &root_der);
 
         Certs {
             root_der,
@@ -367,7 +358,7 @@ fn identify_responder<'a>(
 
     // Handle the GET_DIGESTS request at the responder
     let (rsp_data, transition) = rsp_state
-        .handle_msg::<TestConfig>(
+        .handle_msg(
             cert_chains,
             req_data,
             &mut data.rsp_buf,
@@ -407,7 +398,7 @@ fn identify_responder<'a>(
 
     // Handle the GET_CERTIFICATE request at the responder
     let (rsp_data, transition) = rsp_state
-        .handle_msg::<TestConfig>(
+        .handle_msg(
             &cert_chains,
             req_data,
             &mut data.rsp_buf,
@@ -465,7 +456,7 @@ fn challenge_auth<'a>(
 
     // Handle the CHALLENGE request at the responder
     let (rsp_data, transition) = rsp_state
-        .handle_msg::<TestConfig, RingSigner>(
+        .handle_msg::<RingSigner>(
             cert_chains,
             &signer,
             req_data,
@@ -481,12 +472,7 @@ fn challenge_auth<'a>(
 
     // Deliver the response to the requester
     let transition = req_state
-        .handle_msg::<TestConfig>(
-            rsp_data,
-            &mut data.req_transcript,
-            root_cert,
-            expiry(),
-        )
+        .handle_msg(rsp_data, &mut data.req_transcript, root_cert, expiry())
         .unwrap();
 
     assert_eq!(transition, requester::challenge::Transition::Placeholder);
@@ -506,8 +492,7 @@ fn assert_digests_match_cert_chains<'a>(
             let mut buf = [0u8; MAX_CERT_CHAIN_SIZE];
             let mut w = Writer::new("CERTIFICATE_CHAIN", &mut buf);
             let size = chain.as_ref().unwrap().write(&mut w).unwrap();
-            let expected =
-                <TestConfig as Config>::Digest::hash(hash_algo, &buf[..size]);
+            let expected = DigestImpl::hash(hash_algo, &buf[..size]);
             let len = expected.as_ref().len();
             assert_eq!(digest.as_slice(len), expected.as_ref());
         } else {

@@ -4,8 +4,8 @@
 
 use super::{algorithms, capabilities, challenge, expect, ResponderError};
 
-use crate::config::{Config, MAX_CERT_CHAIN_SIZE, NUM_SLOTS};
-use crate::crypto::digest::Digest;
+use crate::config::{MAX_CERT_CHAIN_SIZE, NUM_SLOTS};
+use crate::crypto::digest::{Digest, DigestImpl};
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
 use crate::msgs::digest::DigestBuf;
 use crate::msgs::{
@@ -64,7 +64,7 @@ impl State {
     ///
     /// Only GET_VERSION, GET_DIGESTS, and GET_CERTIFICATE messsages are
     /// allowed.
-    pub fn handle_msg<'a, 'b, C: Config>(
+    pub fn handle_msg<'a, 'b>(
         self,
         cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
         req: &[u8],
@@ -74,12 +74,7 @@ impl State {
         reset_on_get_version!(req, rsp, transcript);
 
         if GetDigests::parse_header(req)? {
-            return self.handle_get_digests::<C>(
-                cert_chains,
-                req,
-                rsp,
-                transcript,
-            );
+            return self.handle_get_digests(cert_chains, req, rsp, transcript);
         }
 
         // TODO: Handle more than one CERTIFICATE message. How do we decide when
@@ -127,7 +122,7 @@ impl State {
         Ok((&rsp[..size], Transition::Challenge(self.into())))
     }
 
-    fn handle_get_digests<'a, 'b, C: Config>(
+    fn handle_get_digests<'a, 'b>(
         self,
         cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
         req: &[u8],
@@ -135,7 +130,7 @@ impl State {
         transcript: &mut Transcript,
     ) -> Result<(&'b [u8], Transition), ResponderError> {
         let slot_mask = create_slot_mask(cert_chains);
-        let digests = self.hash_cert_chains::<C>(cert_chains)?;
+        let digests = self.hash_cert_chains(cert_chains)?;
         let digest_size =
             self.algorithms.base_hash_algo_selected.get_digest_size();
         let digests = Digests { digest_size, slot_mask, digests };
@@ -147,7 +142,7 @@ impl State {
         Ok((&rsp[..size], Transition::IdAuth(self)))
     }
 
-    fn hash_cert_chains<'a, C: Config>(
+    fn hash_cert_chains<'a>(
         &self,
         cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
     ) -> Result<[DigestBuf; NUM_SLOTS], ResponderError> {
@@ -157,7 +152,7 @@ impl State {
             if let Some(cert_chain) = &cert_chains[i] {
                 let mut w = Writer::new("CERTIFICATE_CHAIN", &mut buf);
                 let size = cert_chain.write(&mut w)?;
-                let digest = C::Digest::hash(
+                let digest = DigestImpl::hash(
                     self.algorithms.base_hash_algo_selected,
                     &buf[..size],
                 );
