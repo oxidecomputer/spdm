@@ -162,6 +162,7 @@ pub fn gen_config(input: SpdmConfig) -> Result<String> {
         max_signature_size(&input.algorithms.asymmetric_signing)?;
     input.cert_chains.validate()?;
     validate_capabilities(&input.capabilities)?;
+    let opaque_data_size = 0;
     let params = [
         input.cert_chains.num_slots.to_string(),
         input.cert_chains.buf_size.to_string(),
@@ -169,7 +170,7 @@ pub fn gen_config(input: SpdmConfig) -> Result<String> {
         input.transcript.buf_size.to_string(),
         max_hash_size.to_string(),
         max_signature_size.to_string(),
-        0.to_string(),
+        opaque_data_size.to_string(),
         format!("{:?}", input.capabilities),
         format!("{:?}", input.algorithms.asymmetric_signing),
         format!("{:?}", input.algorithms.hash),

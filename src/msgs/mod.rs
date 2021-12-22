@@ -19,6 +19,7 @@ pub mod certificates;
 pub mod challenge;
 pub mod digest;
 pub mod encoding;
+pub mod error;
 pub mod version;
 
 pub use algorithms::{Algorithms, NegotiateAlgorithms};
