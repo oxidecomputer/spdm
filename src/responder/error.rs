@@ -4,7 +4,7 @@
 
 use core::fmt::{self, Display, Formatter};
 
-use crate::msgs::{ReadError, WriteError};
+use crate::msgs::{self, ReadError, ReadErrorKind, WriteError};
 
 /// An error returned by a responder state
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,6 +55,36 @@ impl Display for ResponderError {
             ResponderError::SigningFailed => {
                 write!(f, "signing failed")
             }
+        }
+    }
+}
+
+impl From<&ResponderError> for msgs::Error {
+    fn from(err: &ResponderError) -> Self {
+        match err {
+            ResponderError::Write(_) => msgs::Error::LargeResponse(0),
+            ResponderError::Read(ReadError { kind, .. }) => match kind {
+                ReadErrorKind::Header => msgs::Error::InvalidRequest,
+                ReadErrorKind::Empty => msgs::Error::RequestTooLarge,
+                ReadErrorKind::ReservedByteNotZero => {
+                    msgs::Error::InvalidRequest
+                }
+                ReadErrorKind::Unaligned => msgs::Error::Unspecified,
+                ReadErrorKind::TooManyBits => msgs::Error::Unspecified,
+                ReadErrorKind::TypeConversionFailed => msgs::Error::Unspecified,
+                ReadErrorKind::InvalidBitsSet => msgs::Error::InvalidRequest,
+                ReadErrorKind::TooManyBitsSet => msgs::Error::InvalidRequest,
+                ReadErrorKind::SpdmLimitReached => msgs::Error::InvalidRequest,
+                ReadErrorKind::ImplementationLimitReached => {
+                    msgs::Error::InvalidRequest
+                }
+                ReadErrorKind::UnexpectedValue => msgs::Error::InvalidRequest,
+            },
+            ResponderError::UnexpectedMsg { .. } => {
+                msgs::Error::UnexpectedRequest
+            }
+            ResponderError::InvalidSlot => msgs::Error::UnexpectedRequest,
+            ResponderError::SigningFailed => msgs::Error::Unspecified,
         }
     }
 }

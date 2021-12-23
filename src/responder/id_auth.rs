@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use super::{algorithms, capabilities, challenge, expect, ResponderError};
+use super::{algorithms, challenge, expect, AllStates, ResponderError};
 
 use crate::config::{MAX_CERT_CHAIN_SIZE, NUM_SLOTS};
 use crate::crypto::digest::{Digest, DigestImpl};
@@ -16,24 +16,14 @@ use crate::{reset_on_get_version, Transcript};
 
 /// Create a slot mask where a `1` represents a present cert chain, and a `0`
 /// indicates absence.
-pub fn create_slot_mask<'a>(
-    cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
-) -> u8 {
+pub fn create_slot_mask<'a, T: 'a>(slots: &[Option<T>; NUM_SLOTS]) -> u8 {
     let mut bits = 0u8;
     for i in 0..NUM_SLOTS {
-        if cert_chains[i].is_some() {
+        if slots[i].is_some() {
             bits |= 1 << i;
         }
     }
     return bits;
-}
-
-/// A state transition out of the id_auth::State
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Transition {
-    Capabilities(capabilities::State),
-    IdAuth(State),
-    Challenge(challenge::State),
 }
 
 /// The state where digests and certificates are sent to a requester in order to
@@ -64,13 +54,13 @@ impl State {
     ///
     /// Only GET_VERSION, GET_DIGESTS, and GET_CERTIFICATE messsages are
     /// allowed.
-    pub fn handle_msg<'a, 'b>(
+    pub fn handle_msg<'a>(
         self,
         cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
         req: &[u8],
-        rsp: &'b mut [u8],
+        rsp: &mut [u8],
         transcript: &mut Transcript,
-    ) -> Result<(&'b [u8], Transition), ResponderError> {
+    ) -> Result<(usize, AllStates), ResponderError> {
         reset_on_get_version!(req, rsp, transcript);
 
         if GetDigests::parse_header(req)? {
@@ -83,13 +73,13 @@ impl State {
         self.handle_get_certificate(cert_chains, req, rsp, transcript)
     }
 
-    fn handle_get_certificate<'a, 'b>(
+    fn handle_get_certificate<'a>(
         self,
         cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
         req: &[u8],
-        rsp: &'b mut [u8],
+        rsp: &mut [u8],
         transcript: &mut Transcript,
-    ) -> Result<(&'b [u8], Transition), ResponderError> {
+    ) -> Result<(usize, AllStates), ResponderError> {
         let get_cert = GetCertificate::parse_body(&req[HEADER_SIZE..])?;
         if get_cert.slot as usize >= NUM_SLOTS {
             return Err(ReadError::new(
@@ -119,16 +109,16 @@ impl State {
         transcript.extend(req)?;
         transcript.extend(&rsp[..size])?;
 
-        Ok((&rsp[..size], Transition::Challenge(self.into())))
+        Ok((size, challenge::State::from(self).into()))
     }
 
-    fn handle_get_digests<'a, 'b>(
+    fn handle_get_digests<'a>(
         self,
         cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
         req: &[u8],
-        rsp: &'b mut [u8],
+        rsp: &mut [u8],
         transcript: &mut Transcript,
-    ) -> Result<(&'b [u8], Transition), ResponderError> {
+    ) -> Result<(usize, AllStates), ResponderError> {
         let slot_mask = create_slot_mask(cert_chains);
         let digests = self.hash_cert_chains(cert_chains)?;
         let digest_size =
@@ -139,7 +129,7 @@ impl State {
         transcript.extend(req)?;
         transcript.extend(&rsp[..size])?;
 
-        Ok((&rsp[..size], Transition::IdAuth(self)))
+        Ok((size, self.into()))
     }
 
     fn hash_cert_chains<'a>(

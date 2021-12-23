@@ -137,7 +137,7 @@ fn max_signature_size(algos: &Vec<String>) -> Result<usize, SpdmConfigError> {
 fn validate_capabilities(caps: &Vec<String>) -> Result<(), SpdmConfigError> {
     for cap in caps {
         match cap.as_str() {
-            "CERT_CAP" | "CHALLENGE_CAP" | "ENCRYPT_CAP" | "MAC_CAP"
+            "CERT_CAP" | "CHAL_CAP" | "ENCRYPT_CAP" | "MAC_CAP"
             | "MUT_AUTH_CAP" | "KEY_EX_CAP" | "KEY_UPD_CAP" => (),
             x => {
                 return Err(SpdmConfigError::InvalidCapability(x.into()));

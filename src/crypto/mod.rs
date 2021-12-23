@@ -18,3 +18,7 @@
 pub mod digest;
 pub mod pki;
 pub mod signing;
+mod slot;
+
+pub use signing::Signer;
+pub use slot::FilledSlot;

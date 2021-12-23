@@ -4,27 +4,21 @@
 
 use core::convert::From;
 
-use super::{capabilities, expect, id_auth, ResponderError};
+use super::{expect, id_auth, AllStates, ResponderError};
 
 use crate::config::{
     MAX_CERT_CHAIN_SIZE, MAX_DIGEST_SIZE, MAX_SIGNATURE_SIZE, NUM_SLOTS,
 };
 use crate::crypto::{
     digest::{Digest, DigestImpl},
-    signing::Signer,
+    FilledSlot, Signer,
 };
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
 use crate::msgs::{
-    challenge::nonce, encoding::Writer, Algorithms, CertificateChain,
-    Challenge, ChallengeAuth, Msg, HEADER_SIZE,
+    challenge::nonce, encoding::Writer, Algorithms, Challenge, ChallengeAuth,
+    Msg, HEADER_SIZE,
 };
 use crate::{reset_on_get_version, Transcript};
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum Transition {
-    Capabilities(capabilities::State),
-    Placeholder,
-}
 
 /// Challenge requests are handled and responded to in this state
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
@@ -52,14 +46,13 @@ impl State {
     /// Handle a message from a requester
     ///
     /// Only CHALLENGE and GET_VERSION msgs are allowed here.
-    pub fn handle_msg<'a, 'b, S: Signer>(
+    pub fn handle_msg<'a, S: Signer>(
         self,
-        cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
-        signer: &S,
+        slots: &[Option<FilledSlot<'a, S>>; NUM_SLOTS],
         req: &[u8],
-        rsp: &'b mut [u8],
+        rsp: &mut [u8],
         transcript: &mut Transcript,
-    ) -> Result<(&'b [u8], Transition), ResponderError> {
+    ) -> Result<(usize, AllStates), ResponderError> {
         reset_on_get_version!(req, rsp, transcript);
         expect::<Challenge>(req)?;
         let digest_size =
@@ -70,10 +63,14 @@ impl State {
         let req_msg = Challenge::parse_body(&req[HEADER_SIZE..])?;
 
         let cert_chain_digest =
-            if let Some(Some(chain)) = cert_chains.get(req_msg.slot as usize) {
+            if let Some(Some(slot)) = slots.get(req_msg.slot as usize) {
                 let mut buf = [0u8; MAX_CERT_CHAIN_SIZE];
                 let mut w = Writer::new("CERTIFICATE_CHAIN", &mut buf);
-                let size = chain.write(&mut w)?;
+                let size = slot.cert_chain.write(&mut w)?;
+
+                // TODO: Should we fail this if the selected hash algorithm does
+                // not match the slot?
+                // See https://github.com/oxidecomputer/spdm/issues/25
                 DigestImpl::hash(
                     self.algorithms.base_hash_algo_selected,
                     &buf[..size],
@@ -102,7 +99,7 @@ impl State {
 
         let auth = ChallengeAuth::new(
             req_msg.slot,
-            id_auth::create_slot_mask(cert_chains),
+            id_auth::create_slot_mask(slots),
             use_mutual_auth,
             cert_chain_digest.as_ref(),
             nonce(),
@@ -121,6 +118,15 @@ impl State {
             transcript.get(),
         );
 
+        // Unwrap is safe because we are already using this slot
+        let signer = &slots
+            .get(req_msg.slot as usize)
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .signer;
+
         let signature = signer
             .sign(m1_hash.as_ref())
             .map_err(|_| ResponderError::SigningFailed)?;
@@ -128,6 +134,6 @@ impl State {
         // Attach the real signature to the CHALLENGE_AUTH message
         rsp[sig_start..size].copy_from_slice(signature.as_ref());
 
-        Ok((&rsp[..size], Transition::Placeholder))
+        Ok((size, self.into()))
     }
 }
