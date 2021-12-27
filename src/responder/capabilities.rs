@@ -2,18 +2,12 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use super::{algorithms, expect, ResponderError};
+use super::{algorithms, expect, AllStates, ResponderError};
 use crate::msgs::capabilities::{
     Capabilities, GetCapabilities, ReqFlags, RspFlags,
 };
 use crate::msgs::{Msg, HEADER_SIZE};
 use crate::{reset_on_get_version, Transcript};
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Transition {
-    Capabilities(State),
-    Algorithms(algorithms::State),
-}
 
 /// After version negotiation, capabilities are negotiated.
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
@@ -35,13 +29,13 @@ impl State {
     /// Only GetVersion and GetCapabilities messages are valid here.
     ///
     /// The caller passes in the set of supported capabilities
-    pub fn handle_msg<'a>(
+    pub fn handle_msg(
         mut self,
         supported: Capabilities,
         req: &[u8],
-        rsp: &'a mut [u8],
+        rsp: &mut [u8],
         transcript: &mut Transcript,
-    ) -> Result<(&'a [u8], Transition), ResponderError> {
+    ) -> Result<(usize, AllStates), ResponderError> {
         reset_on_get_version!(req, rsp, transcript);
         expect::<GetCapabilities>(req)?;
 
@@ -55,6 +49,6 @@ impl State {
         self.responder_ct_exponent = Some(supported.ct_exponent);
         self.responder_cap = Some(supported.flags);
 
-        Ok((&rsp[..size], Transition::Algorithms(self.into())))
+        Ok((size, algorithms::State::from(self).into()))
     }
 }

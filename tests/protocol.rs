@@ -6,16 +6,15 @@ use spdm::config::{MAX_CERT_CHAIN_SIZE, NUM_SLOTS};
 use spdm::crypto::{
     digest::{Digest, DigestImpl},
     signing::{new_signer, RingSigner},
+    FilledSlot, Signer,
 };
 use spdm::msgs::algorithms::*;
-use spdm::msgs::capabilities::{
-    Capabilities, GetCapabilities, ReqFlags, RspFlags,
-};
+use spdm::msgs::capabilities::{Capabilities, GetCapabilities, ReqFlags};
 use spdm::msgs::{
     digest::Digests, encoding::Writer, CertificateChain, GetVersion, Msg,
 };
 use spdm::requester;
-use spdm::responder;
+use spdm::responder::{self, AllStates, Responder};
 use spdm::{msgs, Transcript};
 
 use test_utils::certs::*;
@@ -29,7 +28,6 @@ pub struct Data {
     req_buf: [u8; BUF_SIZE],
     rsp_buf: [u8; BUF_SIZE],
     req_transcript: Transcript,
-    rsp_transcript: Transcript,
 }
 
 impl Data {
@@ -38,7 +36,6 @@ impl Data {
             req_buf: [0u8; BUF_SIZE],
             rsp_buf: [0u8; BUF_SIZE],
             req_transcript: Transcript::new(),
-            rsp_transcript: Transcript::new(),
         }
     }
 }
@@ -94,35 +91,43 @@ fn create_certs_per_slot() -> Vec<Certs> {
     (0..NUM_SLOTS).map(|_| Certs::new()).collect()
 }
 
-/// Create a set of cert chains, but only filling in some slots
+/// Create a set of cert chains and signers, but only filling in some slots
 ///
 /// In our test code, all cert chains use the same algorithms, but this is not
 /// how they will likely be deployed in practice. From what I can tell, the most
 /// likely usage is to support multiple endpoints with different algorithm
 /// capabilities, such as during rolling upgrade of software or hardware.
-fn create_cert_chains<'a>(
+fn create_slots<'a>(
     certs: &'a [Certs],
-) -> [Option<CertificateChain<'a>>; NUM_SLOTS] {
+) -> [Option<FilledSlot<'a, RingSigner>>; NUM_SLOTS] {
     assert_eq!(certs.len(), NUM_SLOTS);
-    let mut cert_chains = [None; NUM_SLOTS];
+    let mut slots = [None; NUM_SLOTS];
     for i in 0..NUM_SLOTS {
         if i % 2 == 0 {
-            cert_chains[i] = Some(certs[i].cert_chain());
-        } else {
-            cert_chains[i] = None;
+            let private_key = &certs[i].leaf_private_der;
+            slots[i] = Some(FilledSlot {
+                signing_algorithm: BaseAsymAlgo::ECDSA_ECC_NIST_P256,
+                hash_algorithm: BaseHashAlgo::SHA_256,
+                cert_chain: certs[i].cert_chain(),
+                signer: new_signer(
+                    BaseAsymAlgo::ECDSA_ECC_NIST_P256,
+                    private_key,
+                )
+                .unwrap(),
+            });
         }
     }
-    cert_chains
+    slots
 }
 
 // A successful version negotiation brings both requester and responder to
 // capabilities negotiation states.
-fn negotiate_versions(
+fn negotiate_versions<'a, S: Signer>(
     data: &mut Data,
-) -> (requester::capabilities::State, responder::capabilities::State) {
-    // Start the requester and responder state machines in VersionState.
+    responder: &mut Responder<'a, S>,
+) -> requester::capabilities::State {
+    // Start the requester  state machine in VersionState.
     let req_state = requester::start();
-    let rsp_state = responder::start();
 
     // Create a version request and write it into the request buffer
     let req_data = req_state
@@ -136,19 +141,18 @@ fn negotiate_versions(
     // Directly call the responder message handler here instead as if the
     // message was delivered. Message slices must be exact sized when calling
     // `handle_msg` methods.
-    let (rsp_data, rsp_state) = rsp_state
-        .handle_msg(req_data, &mut data.rsp_buf, &mut data.rsp_transcript)
-        .unwrap();
+    let (rsp_data, result) = responder.handle_msg(req_data, &mut data.rsp_buf);
+    result.unwrap();
 
     // The responder transitions to `capabilities::State`
-    assert_eq!(responder::capabilities::State::new(), rsp_state);
+    assert_eq!("Capabilities", responder.state().name());
 
     // The request and response are appended to the transcript
     let req_size = req_data.len();
     let rsp_size = rsp_data.len();
-    assert_eq!(req_data, &data.rsp_transcript.get()[..req_size]);
-    assert_eq!(rsp_data, &data.rsp_transcript.get()[req_size..]);
-    assert_eq!(req_size + rsp_size, data.rsp_transcript.len());
+    assert_eq!(req_data, &responder.transcript().get()[..req_size]);
+    assert_eq!(rsp_data, &responder.transcript().get()[req_size..]);
+    assert_eq!(req_size + rsp_size, responder.transcript().len());
 
     // Take the response and deliver it to the requester
     let req_state = req_state
@@ -163,18 +167,18 @@ fn negotiate_versions(
     assert_eq!(requester::capabilities::State::new(version), req_state);
 
     // The requester transcript matches the responder transcript
-    assert_eq!(data.req_transcript.get(), data.rsp_transcript.get());
+    assert_eq!(data.req_transcript.get(), responder.transcript().get());
 
-    (req_state, rsp_state)
+    req_state
 }
 
 // A successful capabilities negotiation brings both requester and responder to
 // algorithm negotiation states.
-fn negotiate_capabilities(
+fn negotiate_capabilities<'a, S: Signer>(
     mut req_state: requester::capabilities::State,
-    rsp_state: responder::capabilities::State,
+    responder: &mut Responder<'a, S>,
     data: &mut Data,
-) -> (requester::algorithms::State, responder::algorithms::State) {
+) -> requester::algorithms::State {
     // The requester defines its capabilities in the GetCapabilities msg.
     let req = GetCapabilities {
         ct_exponent: 12,
@@ -195,34 +199,12 @@ fn negotiate_capabilities(
         .write_msg(&req, &mut data.req_buf, &mut data.req_transcript)
         .unwrap();
 
-    // The Responder defines its capabilities the `Capabilities` msg
-    let rsp = Capabilities {
-        ct_exponent: 14,
-        flags: RspFlags::CERT_CAP
-            | RspFlags::CHAL_CAP
-            | RspFlags::ENCRYPT_CAP
-            | RspFlags::MAC_CAP
-            | RspFlags::MUT_AUTH_CAP
-            | RspFlags::KEY_EX_CAP
-            | RspFlags::ENCAP_CAP
-            | RspFlags::HBEAT_CAP
-            | RspFlags::KEY_UPD_CAP,
-    };
-
     // Let the responder handle the message.
-    let (rsp_data, transition) = rsp_state
-        .handle_msg(rsp, req_data, &mut data.rsp_buf, &mut data.rsp_transcript)
-        .unwrap();
+    let (rsp_data, result) = responder.handle_msg(req_data, &mut data.rsp_buf);
+    result.unwrap();
 
-    // The responder transitions to `algorithms::State`
-    let rsp_state =
-        if let responder::capabilities::Transition::Algorithms(rsp_state) =
-            transition
-        {
-            rsp_state
-        } else {
-            panic!()
-        };
+    // The responder transitioned to `algorithms::State`
+    assert_eq!("Algorithms", responder.state().name());
 
     // Deliver the response to the requester
     let req_state =
@@ -232,18 +214,18 @@ fn negotiate_capabilities(
 
     assert!(matches!(req_state, requester::algorithms::State { .. }));
 
-    assert_eq!(data.req_transcript, data.rsp_transcript);
+    assert_eq!(data.req_transcript, *responder.transcript());
 
-    (req_state, rsp_state)
+    req_state
 }
 
 // A successful capabilities negotiation brings both requester and responder to
 // algorithm negotiation states.
-fn negotiate_algorithms(
+fn negotiate_algorithms<'a, S: Signer>(
     mut req_state: requester::algorithms::State,
-    rsp_state: responder::algorithms::State,
+    responder: &mut Responder<'a, S>,
     data: &mut Data,
-) -> (requester::id_auth::State, responder::id_auth::State) {
+) -> requester::id_auth::State {
     // The requester describes its options for algorithms
     let req = NegotiateAlgorithms {
         measurement_spec: MeasurementSpec::DMTF,
@@ -275,17 +257,11 @@ fn negotiate_algorithms(
         .unwrap();
 
     // Deliver the request to the responder
-    let (rsp_data, transition) = rsp_state
-        .handle_msg(req_data, &mut data.rsp_buf, &mut data.rsp_transcript)
-        .unwrap();
+    let (rsp_data, result) = responder.handle_msg(req_data, &mut data.rsp_buf);
+    result.unwrap();
 
-    // The responder transitions to `requester_id_auth::State`
-    let rsp_state =
-        if let responder::algorithms::Transition::IdAuth(state) = transition {
-            state
-        } else {
-            unreachable!();
-        };
+    // The responder transitioned to `requester_id_auth::State`
+    assert_eq!("IdAuth", responder.state().name());
 
     // Deliver the response to the requester.
     let req_state = req_state
@@ -297,7 +273,7 @@ fn negotiate_algorithms(
 
     assert!(matches!(req_state, requester::id_auth::State { .. }));
 
-    assert_eq!(data.req_transcript, data.rsp_transcript);
+    assert_eq!(data.req_transcript, *responder.transcript());
 
     // One of the selected algorithms was chosen for each setting.
     // We prioritize the low order bit (for no good reason).
@@ -342,47 +318,35 @@ fn negotiate_algorithms(
         })
     ));
 
-    (req_state, rsp_state)
+    req_state
 }
 
-fn identify_responder<'a>(
+fn identify_responder<'a, S: Signer>(
     mut req_state: requester::id_auth::State,
-    rsp_state: responder::id_auth::State,
+    responder: &mut Responder<'a, S>,
     data: &mut Data,
-    cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
-) -> (requester::challenge::State, responder::challenge::State) {
+) -> requester::challenge::State {
     // Generate the GET_DIGESTS request at the requester
     let req_data = req_state
         .write_get_digests_msg(&mut data.req_buf, &mut data.req_transcript)
         .unwrap();
 
     // Handle the GET_DIGESTS request at the responder
-    let (rsp_data, transition) = rsp_state
-        .handle_msg(
-            cert_chains,
-            req_data,
-            &mut data.rsp_buf,
-            &mut data.rsp_transcript,
-        )
-        .unwrap();
+    let (rsp_data, result) = responder.handle_msg(req_data, &mut data.rsp_buf);
+    result.unwrap();
 
-    // Unpack the current state from the state transition
-    let rsp_state =
-        if let responder::id_auth::Transition::IdAuth(rsp_state) = transition {
-            rsp_state
-        } else {
-            unreachable!();
-        };
+    // The responder is still in IdAuth state
+    assert_eq!("IdAuth", responder.state().name());
 
     // Handle the DIGESTS response at the requester
     req_state.handle_digests(rsp_data, &mut data.req_transcript).unwrap();
 
-    assert_eq!(data.req_transcript.get(), data.rsp_transcript.get());
+    assert_eq!(data.req_transcript.get(), responder.transcript().get());
 
     // The responder creates and sends a digest for each cert chain that exists
     assert_digests_match_cert_chains(
         req_state.algorithms.base_hash_algo_selected,
-        cert_chains,
+        responder.slots(),
         &req_state.digests.as_ref().unwrap(),
     );
 
@@ -397,39 +361,27 @@ fn identify_responder<'a>(
         .unwrap();
 
     // Handle the GET_CERTIFICATE request at the responder
-    let (rsp_data, transition) = rsp_state
-        .handle_msg(
-            &cert_chains,
-            req_data,
-            &mut data.rsp_buf,
-            &mut data.rsp_transcript,
-        )
-        .unwrap();
+    let (rsp_data, response) =
+        responder.handle_msg(req_data, &mut data.rsp_buf);
+    response.unwrap();
 
-    let rsp_state = if let responder::id_auth::Transition::Challenge(
-        rsp_state,
-    ) = transition
-    {
-        rsp_state
-    } else {
-        unreachable!();
-    };
+    // The responder transitioned to the the challenge state
+    assert_eq!("Challenge", responder.state().name());
 
     // Handle the CERTIFICATE response at the requester
     let req_state = req_state
         .handle_certificate(rsp_data, &mut data.req_transcript)
         .unwrap();
 
-    assert_eq!(data.req_transcript.get(), data.rsp_transcript.get());
+    assert_eq!(data.req_transcript.get(), responder.transcript().get());
 
-    (req_state, rsp_state)
+    req_state
 }
 
-fn challenge_auth<'a>(
+fn challenge_auth<'a, S: Signer>(
     mut req_state: requester::challenge::State,
-    rsp_state: responder::challenge::State,
+    responder: &mut Responder<'a, S>,
     data: &mut Data,
-    cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
     certs: &[Certs],
 ) {
     // Create the CHALLENGE request at the requester
@@ -441,31 +393,15 @@ fn challenge_auth<'a>(
         )
         .unwrap();
 
-    // Create the signer, since the private key is application specific. In a
-    // system with an RoT or other hardware mechanism, the signer will be a call
-    // into that mechanism, since the private key is not exposed outside the HW.
-    //
-    // TODO: This only works with a single cert/signer. We need to figure out a
-    // way to support a signer per slot. This gets tricky if each slot has a separate
-    // algorithm. It's possible, instead, that we create a signing interface to
-    // use that takes a slot as a parameter.
-    let private_key = &certs[0].leaf_private_der;
-    let signer =
-        new_signer(rsp_state.algorithms.base_asym_algo_selected, private_key)
-            .unwrap();
-
     // Handle the CHALLENGE request at the responder
-    let (rsp_data, transition) = rsp_state
-        .handle_msg::<RingSigner>(
-            cert_chains,
-            &signer,
-            req_data,
-            &mut data.rsp_buf,
-            &mut data.rsp_transcript,
-        )
-        .unwrap();
+    let (rsp_data, result) = responder.handle_msg(req_data, &mut data.rsp_buf);
+    result.unwrap();
 
-    assert_eq!(transition, responder::challenge::Transition::Placeholder);
+    // The rest of the states have not yet been implemented, so we don't transition
+    // here.
+    //
+    // This will change to "Measurement" when that state is implemented.
+    assert_eq!("Challenge", responder.state().name());
 
     // TODO: Handle more than one slot
     let root_cert = &certs[0].root_der;
@@ -479,24 +415,22 @@ fn challenge_auth<'a>(
 }
 
 // Verify that there is a proper digest for each cert chain
-fn assert_digests_match_cert_chains<'a>(
+fn assert_digests_match_cert_chains<'a, S: Signer>(
     hash_algo: BaseHashAlgo,
-    cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
+    slots: &[Option<FilledSlot<'a, S>>; NUM_SLOTS],
     digests: &Digests<NUM_SLOTS>,
 ) {
-    for (i, (chain, digest)) in
-        cert_chains.iter().zip(digests.digests).enumerate()
-    {
+    for (i, (slot, digest)) in slots.iter().zip(digests.digests).enumerate() {
         // Is there a digest for the given slot
         if (1 << i as u8) & digests.slot_mask != 0 {
             let mut buf = [0u8; MAX_CERT_CHAIN_SIZE];
             let mut w = Writer::new("CERTIFICATE_CHAIN", &mut buf);
-            let size = chain.as_ref().unwrap().write(&mut w).unwrap();
+            let size = slot.as_ref().unwrap().cert_chain.write(&mut w).unwrap();
             let expected = DigestImpl::hash(hash_algo, &buf[..size]);
             let len = expected.as_ref().len();
             assert_eq!(digest.as_slice(len), expected.as_ref());
         } else {
-            assert!(chain.is_none());
+            assert!(slot.is_none());
         }
     }
 }
@@ -508,17 +442,17 @@ fn successful_e2e() {
     let mut data = Data::new();
 
     let certs = create_certs_per_slot();
-    let cert_chains = create_cert_chains(&certs);
+    let slots = create_slots(&certs);
 
-    let (req_state, rsp_state) = negotiate_versions(&mut data);
-    let (req_state, rsp_state) =
-        negotiate_capabilities(req_state, rsp_state, &mut data);
-    let (req_state, rsp_state) =
-        negotiate_algorithms(req_state, rsp_state, &mut data);
-    let (req_state, rsp_state) =
-        identify_responder(req_state, rsp_state, &mut data, &cert_chains);
+    let mut responder = Responder::new(slots);
 
-    challenge_auth(req_state, rsp_state, &mut data, &cert_chains, &certs);
+    let req_state = negotiate_versions(&mut data, &mut responder);
+    let req_state =
+        negotiate_capabilities(req_state, &mut responder, &mut data);
+    let req_state = negotiate_algorithms(req_state, &mut responder, &mut data);
+    let req_state = identify_responder(req_state, &mut responder, &mut data);
+
+    challenge_auth(req_state, &mut responder, &mut data, &certs);
 }
 
 // A Responder will go back to `capabilities::State` if a requester sends a
@@ -543,10 +477,7 @@ fn reset_to_capabilities_state_from_capabilities_state() {
         .handle_msg(cap, &req_buf[..size], &mut rsp_buf, &mut rsp_transcript)
         .unwrap();
 
-    assert!(matches!(
-        transition,
-        responder::capabilities::Transition::Capabilities(_)
-    ));
+    assert!(matches!(transition, AllStates::Capabilities(_)));
 }
 
 // A Responder will go back to `capabilities::State` if a requester sends a
@@ -570,8 +501,5 @@ fn reset_to_capabilities_state_from_algorithms_state() {
         .handle_msg(&req_buf[..size], &mut rsp_buf, &mut rsp_transcript)
         .unwrap();
 
-    assert!(matches!(
-        transition,
-        responder::algorithms::Transition::Capabilities(_)
-    ));
+    assert!(matches!(transition, AllStates::Capabilities(_)));
 }

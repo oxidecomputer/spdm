@@ -19,7 +19,7 @@ pub mod certificates;
 pub mod challenge;
 pub mod digest;
 pub mod encoding;
-pub mod error;
+mod error;
 pub mod version;
 
 pub use algorithms::{Algorithms, NegotiateAlgorithms};
@@ -29,6 +29,7 @@ pub use challenge::{Challenge, ChallengeAuth, MeasurementHashType};
 pub use digest::{Digests, GetDigests};
 use encoding::Writer;
 pub use encoding::{ReadError, ReadErrorKind, WriteError};
+pub use error::Error;
 pub use version::{GetVersion, Version, VersionEntry};
 
 pub const HEADER_SIZE: usize = 2;

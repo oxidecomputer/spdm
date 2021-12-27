@@ -2,17 +2,11 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use super::{capabilities, expect, id_auth, ResponderError};
+use super::{capabilities, expect, id_auth, AllStates, ResponderError};
 use crate::msgs::algorithms::*;
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
 use crate::msgs::{Msg, HEADER_SIZE};
 use crate::{reset_on_get_version, Transcript};
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Transition {
-    Capabilities(capabilities::State),
-    IdAuth(id_auth::State),
-}
 
 /// Algorithms are selected after capability negotiation.
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
@@ -40,12 +34,12 @@ impl State {
     /// Handle a message from a requester
     ///
     /// Only GetVersion and NegotiateAlgorithms messages are valid here.
-    pub fn handle_msg<'a>(
+    pub fn handle_msg(
         mut self,
         req: &[u8],
-        rsp: &'a mut [u8],
+        rsp: &mut [u8],
         transcript: &mut Transcript,
-    ) -> Result<(&'a [u8], Transition), ResponderError> {
+    ) -> Result<(usize, AllStates), ResponderError> {
         reset_on_get_version!(req, rsp, transcript);
         expect::<NegotiateAlgorithms>(req)?;
 
@@ -57,7 +51,7 @@ impl State {
         transcript.extend(&rsp[..size])?;
         self.algorithms = Some(algorithms);
 
-        Ok((&rsp[..size], Transition::IdAuth(self.into())))
+        Ok((size, id_auth::State::from(self).into()))
     }
 
     // We use the simplest mechanism possible here and just choose the first set

@@ -6,6 +6,7 @@ use super::encoding::{ReadError, ReadErrorKind, Reader, WriteError, Writer};
 use super::Msg;
 
 use bitflags::bitflags;
+use core::str::FromStr;
 
 bitflags! {
     /// The Capabilities defined by the requester
@@ -24,6 +25,37 @@ bitflags! {
         const KEY_UPD_CAP = 0b0100_0000_0000_0000;
         const HANDSHAKE_IN_THE_CLEAR_CAP = 0b1000_0000_0000_0000;
         const PUB_KEY_ID_CAP = 0b0000_0001_0000_0000_0000_0000;
+    }
+}
+
+// We only allow strings for fields we want the user to configure, excluding
+// things like `PSK_CAP_MASK`.
+impl FromStr for ReqFlags {
+    type Err = ReadError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let flag = match s {
+            "CERT_CAP" => ReqFlags::CERT_CAP,
+            "CHAL_CAP" => ReqFlags::CHAL_CAP,
+            "ENCRYPT_CAP" => ReqFlags::ENCRYPT_CAP,
+            "MAC_CAP" => ReqFlags::MAC_CAP,
+            "MUT_AUTH_CAP" => ReqFlags::MUT_AUTH_CAP,
+            "KEY_EX_CAP" => ReqFlags::KEY_EX_CAP,
+            "PSK_CAP" => ReqFlags::PSK_CAP,
+            "ENCAP_CAP" => ReqFlags::ENCAP_CAP,
+            "HBEAT_CAP" => ReqFlags::HBEAT_CAP,
+            "KEY_UPD_CAP" => ReqFlags::KEY_UPD_CAP,
+            "HANDSHAKE_IN_THE_CLEAR_CAP" => {
+                ReqFlags::HANDSHAKE_IN_THE_CLEAR_CAP
+            }
+            "PUB_KEY_ID_CAP" => ReqFlags::PUB_KEY_ID_CAP,
+            _ => {
+                return Err(ReadError::new(
+                    "CAPABILITIES",
+                    ReadErrorKind::UnexpectedValue,
+                ))
+            }
+        };
+        Ok(flag)
     }
 }
 
@@ -83,6 +115,39 @@ bitflags! {
         const KEY_UPD_CAP = 0b0100_0000_0000_0000;
         const HANDSHAKE_IN_THE_CLEAR_CAP = 0b1000_0000_0000_0000;
         const PUB_KEY_ID_CAP = 0b0000_0001_0000_0000_0000_0000;
+    }
+}
+
+// We only allow strings for fields we want the user to configure, excluding
+// things like `PSK_CAP_MASK`.impl FromStr for RspFlags {
+impl FromStr for RspFlags {
+    type Err = ReadError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let flag = match s {
+            "CACHE_CAP" => RspFlags::CACHE_CAP,
+            "CERT_CAP" => RspFlags::CERT_CAP,
+            "CHAL_CAP" => RspFlags::CHAL_CAP,
+            "MEAS_FRESH_CAP" => RspFlags::MEAS_FRESH_CAP,
+            "ENCRYPT_CAP" => RspFlags::ENCRYPT_CAP,
+            "MAC_CAP" => RspFlags::MAC_CAP,
+            "MUT_AUTH_CAP" => RspFlags::MUT_AUTH_CAP,
+            "KEY_EX_CAP" => RspFlags::KEY_EX_CAP,
+            "PSK_CAP" => RspFlags::PSK_CAP,
+            "ENCAP_CAP" => RspFlags::ENCAP_CAP,
+            "HBEAT_CAP" => RspFlags::HBEAT_CAP,
+            "KEY_UPD_CAP" => RspFlags::KEY_UPD_CAP,
+            "HANDSHAKE_IN_THE_CLEAR_CAP" => {
+                RspFlags::HANDSHAKE_IN_THE_CLEAR_CAP
+            }
+            "PUB_KEY_ID_CAP" => RspFlags::PUB_KEY_ID_CAP,
+            _ => {
+                return Err(ReadError::new(
+                    "CAPABILITIES",
+                    ReadErrorKind::UnexpectedValue,
+                ))
+            }
+        };
+        Ok(flag)
     }
 }
 
