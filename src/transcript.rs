@@ -3,7 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use crate::config::TRANSCRIPT_SIZE;
-use crate::msgs::WriteError;
+use crate::msgs::{WriteError, WriteErrorKind};
 
 /// A `Transcript` is used to track contigous operations for measurement
 /// purposes.
@@ -26,7 +26,7 @@ impl Transcript {
     pub fn extend(&mut self, buf: &[u8]) -> Result<(), WriteError> {
         let end = self.offset + buf.len();
         if end > self.buf.len() {
-            Err(WriteError::new("TRANSCRIPT", buf.len()))
+            Err(WriteError::new("TRANSCRIPT", WriteErrorKind::BufferFull))
         } else {
             self.buf[self.offset..end].copy_from_slice(buf);
             self.offset = end;

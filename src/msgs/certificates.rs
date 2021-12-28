@@ -6,7 +6,9 @@ use core::cmp::PartialEq;
 
 use crate::config::MAX_CERT_CHAIN_DEPTH;
 
-use super::encoding::{ReadError, ReadErrorKind, Reader, WriteError, Writer};
+use super::encoding::{
+    ReadError, ReadErrorKind, Reader, WriteError, WriteErrorKind, Writer,
+};
 use super::Msg;
 
 /// A request for a certificate portion in a given slot
@@ -191,8 +193,10 @@ impl<'a> CertificateChain<'a> {
                 .fold(0, |acc, i| acc + self.intermediate_certs[i].len())
             + self.leaf_cert.len();
         if length > 65535 {
-            // TODO: Return a better indicator of what went wrong?
-            return Err(WriteError::new("CERTFICATE", length));
+            return Err(WriteError::new(
+                "CERTFICATE",
+                WriteErrorKind::InvalidRange("CertificateChain (length)"),
+            ));
         }
         w.put_u16(length as u16)?;
         w.put_reserved(2)?;
