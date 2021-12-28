@@ -9,22 +9,38 @@ use core::fmt::{self, Display, Formatter};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WriteError {
     pub msg: &'static str,
-    pub buf_size: usize,
+    pub kind: WriteErrorKind,
 }
 
 impl WriteError {
-    pub fn new(msg: &'static str, buf_size: usize) -> WriteError {
-        WriteError { msg, buf_size }
+    pub fn new(msg: &'static str, kind: WriteErrorKind) -> WriteError {
+        WriteError { msg, kind }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WriteErrorKind {
+    /// The buffer being written into is out of space
+    BufferFull,
+
+    /// The integer value for the given field is not within the expected range
+    InvalidRange(&'static str),
+}
+
+impl Display for WriteErrorKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            WriteErrorKind::BufferFull => write!(f, "buffer full"),
+            WriteErrorKind::InvalidRange(field_name) => {
+                write!(f, "invalid range for field {}", field_name)
+            }
+        }
     }
 }
 
 impl Display for WriteError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "failed to serialize {} into buffer of size {}",
-            self.msg, self.buf_size
-        )
+        write!(f, "failed to serialize msg {}: {}", self.msg, self.kind)
     }
 }
 
@@ -45,7 +61,7 @@ impl<'a> Writer<'a> {
     /// Return the amount of the buffer used or an error if the buffer is full.
     pub fn put(&mut self, value: u8) -> Result<usize, WriteError> {
         if self.is_full() {
-            Err(WriteError::new(self.msg, self.buf.len()))
+            Err(WriteError::new(self.msg, WriteErrorKind::BufferFull))
         } else {
             self.buf[self.offset] = value;
             self.offset += 1;
@@ -85,7 +101,7 @@ impl<'a> Writer<'a> {
     // Append a slice onto the buffer
     pub fn extend(&mut self, buf: &[u8]) -> Result<usize, WriteError> {
         if buf.len() > self.remaining() {
-            Err(WriteError::new(self.msg, self.buf.len()))
+            Err(WriteError::new(self.msg, WriteErrorKind::BufferFull))
         } else {
             let end = self.offset + buf.len();
             self.buf[self.offset..end].copy_from_slice(buf);
