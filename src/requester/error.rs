@@ -29,6 +29,10 @@ pub enum RequesterError {
 
     // A certificate could not be parsed properly
     InvalidCert,
+
+    // Protocol initialization is complete and a secure session now exists.
+    // The user must transition to the `RequesterSession` state.
+    InitializationComplete,
 }
 
 impl From<WriteError> for RequesterError {
@@ -77,6 +81,9 @@ requester does not support"
             }
             RequesterError::InvalidCert => {
                 write!(f, "invalid certificate")
+            }
+            RequesterError::InitializationComplete => {
+                write!(f, "initialization complete")
             }
         }
     }

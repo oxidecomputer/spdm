@@ -9,17 +9,14 @@ use spdm::crypto::{
     FilledSlot, Signer,
 };
 use spdm::msgs::algorithms::*;
-use spdm::msgs::capabilities::{Capabilities, GetCapabilities, ReqFlags};
 use spdm::msgs::{
     digest::Digests, encoding::Writer, CertificateChain, GetVersion, Msg,
 };
-use spdm::requester;
+use spdm::requester::{self, RequesterInit};
 use spdm::responder::{self, AllStates, Responder};
-use spdm::{msgs, Transcript};
+use spdm::Transcript;
 
 use test_utils::certs::*;
-
-use std::time::SystemTime;
 
 const BUF_SIZE: usize = 2048;
 
@@ -27,24 +24,12 @@ const BUF_SIZE: usize = 2048;
 pub struct Data {
     req_buf: [u8; BUF_SIZE],
     rsp_buf: [u8; BUF_SIZE],
-    req_transcript: Transcript,
 }
 
 impl Data {
     pub fn new() -> Data {
-        Data {
-            req_buf: [0u8; BUF_SIZE],
-            rsp_buf: [0u8; BUF_SIZE],
-            req_transcript: Transcript::new(),
-        }
+        Data { req_buf: [0u8; BUF_SIZE], rsp_buf: [0u8; BUF_SIZE] }
     }
-}
-
-// Return the number of seconds since Unix epoch when a cert is expected to
-// expire.
-fn expiry() -> u64 {
-    SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
-        + 10000
 }
 
 struct Certs {
@@ -124,18 +109,14 @@ fn create_slots<'a>(
 // capabilities negotiation states.
 fn negotiate_versions<'a, S: Signer>(
     data: &mut Data,
+    requester: &mut RequesterInit<'a, S>,
     responder: &mut Responder<'a, S>,
-) -> requester::capabilities::State {
-    // Start the requester  state machine in VersionState.
-    let req_state = requester::start();
-
+) {
     // Create a version request and write it into the request buffer
-    let req_data = req_state
-        .write_get_version(&mut data.req_buf, &mut data.req_transcript)
-        .unwrap();
+    let req_data = requester.next_request(&mut data.req_buf).unwrap();
 
     // The message is appended to the transcript
-    assert_eq!(req_data, data.req_transcript.get());
+    assert_eq!(req_data, requester.transcript().get());
 
     // In a real system the messge would be sent over a transport.
     // Directly call the responder message handler here instead as if the
@@ -155,49 +136,27 @@ fn negotiate_versions<'a, S: Signer>(
     assert_eq!(req_size + rsp_size, responder.transcript().len());
 
     // Take the response and deliver it to the requester
-    let req_state = req_state
-        .handle_msg(&data.rsp_buf[..rsp_size], &mut data.req_transcript)
-        .unwrap();
-
-    // We know the version
-    let version =
-        msgs::VersionEntry { major: 1, minor: 1, update: 0, alpha: 0 };
+    let initialization_complete =
+        requester.handle_msg(&data.rsp_buf[..rsp_size]).unwrap();
+    assert_eq!(false, initialization_complete);
 
     // The requester transitions to `capabilities::State`
-    assert_eq!(requester::capabilities::State::new(version), req_state);
+    assert_eq!("Capabilities", requester.state().name());
 
     // The requester transcript matches the responder transcript
-    assert_eq!(data.req_transcript.get(), responder.transcript().get());
-
-    req_state
+    assert_eq!(requester.transcript().get(), responder.transcript().get());
 }
 
 // A successful capabilities negotiation brings both requester and responder to
 // algorithm negotiation states.
 fn negotiate_capabilities<'a, S: Signer>(
-    mut req_state: requester::capabilities::State,
+    requester: &mut RequesterInit<'a, S>,
     responder: &mut Responder<'a, S>,
     data: &mut Data,
-) -> requester::algorithms::State {
-    // The requester defines its capabilities in the GetCapabilities msg.
-    let req = GetCapabilities {
-        ct_exponent: 12,
-        flags: ReqFlags::CERT_CAP
-            | ReqFlags::CHAL_CAP
-            | ReqFlags::ENCRYPT_CAP
-            | ReqFlags::MAC_CAP
-            | ReqFlags::MUT_AUTH_CAP
-            | ReqFlags::KEY_EX_CAP
-            | ReqFlags::ENCAP_CAP
-            | ReqFlags::HBEAT_CAP
-            | ReqFlags::KEY_UPD_CAP,
-    };
-
+) {
     // Serialize the GetCapabilities  message to send to the responder and
     // update the transcript.
-    let req_data = req_state
-        .write_msg(&req, &mut data.req_buf, &mut data.req_transcript)
-        .unwrap();
+    let req_data = requester.next_request(&mut data.req_buf).unwrap();
 
     // Let the responder handle the message.
     let (rsp_data, result) = responder.handle_msg(req_data, &mut data.rsp_buf);
@@ -207,54 +166,24 @@ fn negotiate_capabilities<'a, S: Signer>(
     assert_eq!("Algorithms", responder.state().name());
 
     // Deliver the response to the requester
-    let req_state =
-        req_state.handle_msg(rsp_data, &mut data.req_transcript).unwrap();
+    let initialization_complete = requester.handle_msg(rsp_data).unwrap();
+    assert_eq!(false, initialization_complete);
 
     // The requester transitions to `algorithms::State`
+    assert_eq!("Algorithms", requester.state().name());
 
-    assert!(matches!(req_state, requester::algorithms::State { .. }));
-
-    assert_eq!(data.req_transcript, *responder.transcript());
-
-    req_state
+    assert_eq!(requester.transcript(), responder.transcript());
 }
 
 // A successful capabilities negotiation brings both requester and responder to
 // algorithm negotiation states.
 fn negotiate_algorithms<'a, S: Signer>(
-    mut req_state: requester::algorithms::State,
+    requester: &mut RequesterInit<'a, S>,
     responder: &mut Responder<'a, S>,
     data: &mut Data,
-) -> requester::id_auth::State {
-    // The requester describes its options for algorithms
-    let req = NegotiateAlgorithms {
-        measurement_spec: MeasurementSpec::DMTF,
-        base_asym_algo: BaseAsymAlgo::ECDSA_ECC_NIST_P256,
-        base_hash_algo: BaseHashAlgo::SHA_256 | BaseHashAlgo::SHA3_256,
-        num_algorithm_requests: 4,
-        algorithm_requests: [
-            AlgorithmRequest::Dhe(DheAlgorithm {
-                supported: DheFixedAlgorithms::FFDHE_3072
-                    | DheFixedAlgorithms::SECP_384_R1,
-            }),
-            AlgorithmRequest::Aead(AeadAlgorithm {
-                supported: AeadFixedAlgorithms::AES_256_GCM
-                    | AeadFixedAlgorithms::CHACHA20_POLY1305,
-            }),
-            AlgorithmRequest::ReqBaseAsym(ReqBaseAsymAlgorithm {
-                supported: ReqBaseAsymFixedAlgorithms::ECDSA_ECC_NIST_P384
-                    | ReqBaseAsymFixedAlgorithms::ECDSA_ECC_NIST_P256,
-            }),
-            AlgorithmRequest::KeySchedule(KeyScheduleAlgorithm {
-                supported: KeyScheduleFixedAlgorithms::SPDM,
-            }),
-        ],
-    };
-
+) {
     // Serialize the request
-    let req_data = req_state
-        .write_msg(req, &mut data.req_buf, &mut data.req_transcript)
-        .unwrap();
+    let req_data = requester.next_request(&mut data.req_buf).unwrap();
 
     // Deliver the request to the responder
     let (rsp_data, result) = responder.handle_msg(req_data, &mut data.rsp_buf);
@@ -264,72 +193,68 @@ fn negotiate_algorithms<'a, S: Signer>(
     assert_eq!("IdAuth", responder.state().name());
 
     // Deliver the response to the requester.
-    let req_state = req_state
-        .handle_msg::<NUM_SLOTS, MAX_CERT_CHAIN_SIZE>(
-            rsp_data,
-            &mut data.req_transcript,
-        )
-        .unwrap();
+    let initialization_complete = requester.handle_msg(rsp_data).unwrap();
+    assert_eq!(false, initialization_complete);
 
-    assert!(matches!(req_state, requester::id_auth::State { .. }));
+    assert_eq!("IdAuth", requester.state().name());
 
-    assert_eq!(data.req_transcript, *responder.transcript());
+    assert_eq!(requester.transcript(), responder.transcript());
 
-    // One of the selected algorithms was chosen for each setting.
-    // We prioritize the low order bit (for no good reason).
-    assert_eq!(
-        req_state.algorithms.measurement_spec_selected,
-        MeasurementSpec::DMTF
-    );
-    assert_eq!(
-        req_state.algorithms.base_asym_algo_selected,
-        BaseAsymAlgo::ECDSA_ECC_NIST_P256
-    );
-    assert_eq!(
-        req_state.algorithms.base_hash_algo_selected,
-        BaseHashAlgo::SHA_256
-    );
-    assert_eq!(
-        req_state.algorithms.measurement_hash_algo_selected,
-        req_state.algorithms.base_hash_algo_selected
-    );
-    assert!(matches!(
-        req_state.algorithms.algorithm_responses[0],
-        AlgorithmResponse::Dhe(DheAlgorithm {
-            supported: DheFixedAlgorithms::FFDHE_3072
-        })
-    ));
-    assert!(matches!(
-        req_state.algorithms.algorithm_responses[1],
-        AlgorithmResponse::Aead(AeadAlgorithm {
-            supported: AeadFixedAlgorithms::AES_256_GCM
-        })
-    ));
-    assert!(matches!(
-        req_state.algorithms.algorithm_responses[2],
-        AlgorithmResponse::ReqBaseAsym(ReqBaseAsymAlgorithm {
-            supported: ReqBaseAsymFixedAlgorithms::ECDSA_ECC_NIST_P256
-        })
-    ));
-    assert!(matches!(
-        req_state.algorithms.algorithm_responses[3],
-        AlgorithmResponse::KeySchedule(KeyScheduleAlgorithm {
-            supported: KeyScheduleFixedAlgorithms::SPDM
-        })
-    ));
-
-    req_state
+    if let requester::AllStates::IdAuth(ref req_state) = requester.state() {
+        // One of the selected algorithms was chosen for each setting.
+        // This should match config
+        assert_eq!(
+            req_state.algorithms.measurement_spec_selected,
+            MeasurementSpec::DMTF
+        );
+        assert_eq!(
+            req_state.algorithms.base_asym_algo_selected,
+            BaseAsymAlgo::ECDSA_ECC_NIST_P256
+        );
+        assert_eq!(
+            req_state.algorithms.base_hash_algo_selected,
+            BaseHashAlgo::SHA_256
+        );
+        assert_eq!(
+            req_state.algorithms.measurement_hash_algo_selected,
+            req_state.algorithms.base_hash_algo_selected
+        );
+        assert!(matches!(
+            req_state.algorithms.algorithm_responses[0],
+            AlgorithmResponse::Dhe(DheAlgorithm {
+                supported: DheFixedAlgorithms::FFDHE_3072
+            })
+        ));
+        assert!(matches!(
+            req_state.algorithms.algorithm_responses[1],
+            AlgorithmResponse::Aead(AeadAlgorithm {
+                supported: AeadFixedAlgorithms::AES_256_GCM
+            })
+        ));
+        assert!(matches!(
+            req_state.algorithms.algorithm_responses[2],
+            AlgorithmResponse::ReqBaseAsym(ReqBaseAsymAlgorithm {
+                supported: ReqBaseAsymFixedAlgorithms::ECDSA_ECC_NIST_P256
+            })
+        ));
+        assert!(matches!(
+            req_state.algorithms.algorithm_responses[3],
+            AlgorithmResponse::KeySchedule(KeyScheduleAlgorithm {
+                supported: KeyScheduleFixedAlgorithms::SPDM
+            })
+        ));
+    } else {
+        assert!(false);
+    }
 }
 
 fn identify_responder<'a, S: Signer>(
-    mut req_state: requester::id_auth::State,
+    requester: &mut RequesterInit<'a, S>,
     responder: &mut Responder<'a, S>,
     data: &mut Data,
-) -> requester::challenge::State {
+) {
     // Generate the GET_DIGESTS request at the requester
-    let req_data = req_state
-        .write_get_digests_msg(&mut data.req_buf, &mut data.req_transcript)
-        .unwrap();
+    let req_data = requester.next_request(&mut data.req_buf).unwrap();
 
     // Handle the GET_DIGESTS request at the responder
     let (rsp_data, result) = responder.handle_msg(req_data, &mut data.rsp_buf);
@@ -339,26 +264,24 @@ fn identify_responder<'a, S: Signer>(
     assert_eq!("IdAuth", responder.state().name());
 
     // Handle the DIGESTS response at the requester
-    req_state.handle_digests(rsp_data, &mut data.req_transcript).unwrap();
+    let initialization_complete = requester.handle_msg(rsp_data).unwrap();
+    assert_eq!(false, initialization_complete);
 
-    assert_eq!(data.req_transcript.get(), responder.transcript().get());
+    assert_eq!(requester.transcript().get(), responder.transcript().get());
 
-    // The responder creates and sends a digest for each cert chain that exists
-    assert_digests_match_cert_chains(
-        req_state.algorithms.base_hash_algo_selected,
-        responder.slots(),
-        &req_state.digests.as_ref().unwrap(),
-    );
+    if let requester::AllStates::IdAuth(ref req_state) = requester.state() {
+        // The responder creates and sends a digest for each cert chain that exists
+        assert_digests_match_cert_chains(
+            req_state.algorithms.base_hash_algo_selected,
+            responder.slots(),
+            &req_state.digests.as_ref().unwrap(),
+        );
+    } else {
+        assert!(false);
+    }
 
     // Get the first cert chain (slot 0 always exists)
-    let slot = 0;
-    let req_data = req_state
-        .write_get_certificate_msg(
-            slot,
-            &mut data.req_buf,
-            &mut data.req_transcript,
-        )
-        .unwrap();
+    let req_data = requester.next_request(&mut data.req_buf).unwrap();
 
     // Handle the GET_CERTIFICATE request at the responder
     let (rsp_data, response) =
@@ -369,29 +292,21 @@ fn identify_responder<'a, S: Signer>(
     assert_eq!("Challenge", responder.state().name());
 
     // Handle the CERTIFICATE response at the requester
-    let req_state = req_state
-        .handle_certificate(rsp_data, &mut data.req_transcript)
-        .unwrap();
+    let initialization_complete = requester.handle_msg(rsp_data).unwrap();
+    assert_eq!(initialization_complete, false);
 
-    assert_eq!(data.req_transcript.get(), responder.transcript().get());
+    assert_eq!(requester.transcript().get(), responder.transcript().get());
 
-    req_state
+    assert_eq!("Challenge", requester.state().name());
 }
 
 fn challenge_auth<'a, S: Signer>(
-    mut req_state: requester::challenge::State,
+    requester: &mut RequesterInit<'a, S>,
     responder: &mut Responder<'a, S>,
     data: &mut Data,
-    certs: &[Certs],
 ) {
     // Create the CHALLENGE request at the requester
-    let req_data = req_state
-        .write_challenge_msg(
-            msgs::MeasurementHashType::None,
-            &mut data.req_buf,
-            &mut data.req_transcript,
-        )
-        .unwrap();
+    let req_data = requester.next_request(&mut data.req_buf).unwrap();
 
     // Handle the CHALLENGE request at the responder
     let (rsp_data, result) = responder.handle_msg(req_data, &mut data.rsp_buf);
@@ -403,15 +318,11 @@ fn challenge_auth<'a, S: Signer>(
     // This will change to "Measurement" when that state is implemented.
     assert_eq!("Challenge", responder.state().name());
 
-    // TODO: Handle more than one slot
-    let root_cert = &certs[0].root_der;
-
     // Deliver the response to the requester
-    let transition = req_state
-        .handle_msg(rsp_data, &mut data.req_transcript, root_cert, expiry())
-        .unwrap();
+    let initialization_complete = requester.handle_msg(rsp_data).unwrap();
+    assert_eq!(true, initialization_complete);
 
-    assert_eq!(transition, requester::challenge::Transition::Placeholder);
+    assert_eq!("NewSession", requester.state().name());
 }
 
 // Verify that there is a proper digest for each cert chain
@@ -443,16 +354,18 @@ fn successful_e2e() {
 
     let certs = create_certs_per_slot();
     let slots = create_slots(&certs);
+    let slots2 = create_slots(&certs);
 
     let mut responder = Responder::new(slots);
 
-    let req_state = negotiate_versions(&mut data, &mut responder);
-    let req_state =
-        negotiate_capabilities(req_state, &mut responder, &mut data);
-    let req_state = negotiate_algorithms(req_state, &mut responder, &mut data);
-    let req_state = identify_responder(req_state, &mut responder, &mut data);
+    // TODO: Should the root be the same for all slots?
+    let mut requester = RequesterInit::new(&certs[0].root_der, slots2);
 
-    challenge_auth(req_state, &mut responder, &mut data, &certs);
+    negotiate_versions(&mut data, &mut requester, &mut responder);
+    negotiate_capabilities(&mut requester, &mut responder, &mut data);
+    negotiate_algorithms(&mut requester, &mut responder, &mut data);
+    identify_responder(&mut requester, &mut responder, &mut data);
+    challenge_auth(&mut requester, &mut responder, &mut data);
 }
 
 // A Responder will go back to `capabilities::State` if a requester sends a
@@ -463,7 +376,6 @@ fn successful_e2e() {
 #[test]
 fn reset_to_capabilities_state_from_capabilities_state() {
     let state = responder::capabilities::State::new();
-    let cap = Capabilities::default();
 
     // Create necessary buffers
     let mut req_buf = [0u8; 512];
@@ -474,7 +386,7 @@ fn reset_to_capabilities_state_from_capabilities_state() {
     let size = GetVersion {}.write(&mut req_buf).unwrap();
 
     let (_, transition) = state
-        .handle_msg(cap, &req_buf[..size], &mut rsp_buf, &mut rsp_transcript)
+        .handle_msg(&req_buf[..size], &mut rsp_buf, &mut rsp_transcript)
         .unwrap();
 
     assert!(matches!(transition, AllStates::Capabilities(_)));

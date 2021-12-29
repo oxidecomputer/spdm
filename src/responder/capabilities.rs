@@ -3,6 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use super::{algorithms, expect, AllStates, ResponderError};
+use crate::config;
 use crate::msgs::capabilities::{
     Capabilities, GetCapabilities, ReqFlags, RspFlags,
 };
@@ -28,10 +29,9 @@ impl State {
     ///
     /// Only GetVersion and GetCapabilities messages are valid here.
     ///
-    /// The caller passes in the set of supported capabilities
+    /// The set of supported capabilities comes from configuration.
     pub fn handle_msg(
         mut self,
-        supported: Capabilities,
         req: &[u8],
         rsp: &mut [u8],
         transcript: &mut Transcript,
@@ -44,6 +44,7 @@ impl State {
         self.requester_cap = Some(get_cap.flags);
         transcript.extend(req)?;
 
+        let supported = config_to_capabilities_msg()?;
         let size = supported.write(rsp)?;
         transcript.extend(&rsp[..size])?;
         self.responder_ct_exponent = Some(supported.ct_exponent);
@@ -51,4 +52,19 @@ impl State {
 
         Ok((size, algorithms::State::from(self).into()))
     }
+}
+
+// TODO: This whole things should probably move to config generation...
+// We would then just abort if the parsing fails
+fn config_to_capabilities_msg() -> Result<Capabilities, ResponderError> {
+    let mut flags = RspFlags::default();
+    for s in config::CAPABILITIES {
+        flags |= s.parse()?;
+    }
+    Ok(Capabilities {
+        // TODO: Don't hardcode this - take it from config
+        // See https://github.com/oxidecomputer/spdm/issues/23
+        ct_exponent: 12,
+        flags,
+    })
 }

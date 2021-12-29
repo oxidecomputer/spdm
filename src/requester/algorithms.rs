@@ -5,7 +5,8 @@
 use core::convert::From;
 
 use super::{capabilities, expect, id_auth, RequesterError};
-use crate::msgs::algorithms::{AlgorithmRequest, AlgorithmResponse};
+use crate::config;
+use crate::msgs::algorithms::*;
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
 use crate::msgs::{
     Algorithms, Msg, NegotiateAlgorithms, VersionEntry, HEADER_SIZE,
@@ -43,10 +44,10 @@ impl State {
     /// transcript
     pub fn write_msg<'a>(
         &mut self,
-        msg: NegotiateAlgorithms,
         buf: &'a mut [u8],
         transcript: &mut Transcript,
     ) -> Result<&'a [u8], RequesterError> {
+        let msg = config_to_negotiate_algorithms_msg()?;
         let size = msg.write(buf)?;
         self.negotiate_algorithms = Some(msg);
         transcript.extend(&buf[..size])?;
@@ -54,7 +55,7 @@ impl State {
     }
 
     /// Only `Algorithms` messsages are acceptable here.
-    pub fn handle_msg<const NUM_SLOTS: usize, const CERT_CHAIN_SIZE: usize>(
+    pub fn handle_msg(
         mut self,
         buf: &[u8],
         transcript: &mut Transcript,
@@ -169,6 +170,44 @@ impl State {
         }
         Ok(())
     }
+}
+
+fn config_to_negotiate_algorithms_msg(
+) -> Result<NegotiateAlgorithms, RequesterError> {
+    let mut signing_algos = BaseAsymAlgo::default();
+    for s in config::ALGORITHMS_ASYMMETRIC_SIGNING {
+        signing_algos |= s.parse()?;
+    }
+    let mut hash_algos = BaseHashAlgo::default();
+    for s in config::ALGORITHMS_HASH {
+        hash_algos |= s.parse()?;
+    }
+    Ok(NegotiateAlgorithms {
+        measurement_spec: MeasurementSpec::DMTF,
+        base_asym_algo: signing_algos,
+        base_hash_algo: hash_algos,
+
+        // TODO: Generate the following from config, once we implement this
+        // functionality
+        num_algorithm_requests: 4,
+        algorithm_requests: [
+            AlgorithmRequest::Dhe(DheAlgorithm {
+                supported: DheFixedAlgorithms::FFDHE_3072
+                    | DheFixedAlgorithms::SECP_384_R1,
+            }),
+            AlgorithmRequest::Aead(AeadAlgorithm {
+                supported: AeadFixedAlgorithms::AES_256_GCM
+                    | AeadFixedAlgorithms::CHACHA20_POLY1305,
+            }),
+            AlgorithmRequest::ReqBaseAsym(ReqBaseAsymAlgorithm {
+                supported: ReqBaseAsymFixedAlgorithms::ECDSA_ECC_NIST_P384
+                    | ReqBaseAsymFixedAlgorithms::ECDSA_ECC_NIST_P256,
+            }),
+            AlgorithmRequest::KeySchedule(KeyScheduleAlgorithm {
+                supported: KeyScheduleFixedAlgorithms::SPDM,
+            }),
+        ],
+    })
 }
 
 #[cfg(test)]
