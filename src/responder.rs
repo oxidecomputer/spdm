@@ -88,21 +88,6 @@ impl From<challenge::State> for AllStates {
     }
 }
 
-// TODO: This whole things should probably move to config generation...
-// We would then just abort if the parsing fails
-fn config_to_capabilities_msg() -> Result<msgs::Capabilities, ResponderError> {
-    let mut flags = msgs::capabilities::RspFlags::default();
-    for s in config::CAPABILITIES {
-        flags |= s.parse()?;
-    }
-    Ok(msgs::Capabilities {
-        // TODO: Don't hardcode this - take it from config
-        // See https://github.com/oxidecomputer/spdm/issues/23
-        ct_exponent: 12,
-        flags,
-    })
-}
-
 impl AllStates {
     fn handle<'a, 'b, S: Signer>(
         self,
@@ -113,16 +98,9 @@ impl AllStates {
     ) -> (&'a [u8], AllStates, Result<(), ResponderError>) {
         let res = match self {
             AllStates::Version(state) => state.handle_msg(req, rsp, transcript),
-            AllStates::Capabilities(state) => state.handle_msg(
-                // This is a programmer error, but one we may want to
-                // catch immediately at startup.
-                // TODO: Move the unwrap earlier to config generation?
-                // Ideally we could do this in build.rs, but that gets hairy...
-                config_to_capabilities_msg().unwrap(),
-                req,
-                rsp,
-                transcript,
-            ),
+            AllStates::Capabilities(state) => {
+                state.handle_msg(req, rsp, transcript)
+            }
             AllStates::Algorithms(state) => {
                 state.handle_msg(req, rsp, transcript)
             }

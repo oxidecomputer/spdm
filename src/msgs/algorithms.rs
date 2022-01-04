@@ -6,6 +6,7 @@ use super::encoding::{ReadError, ReadErrorKind, Reader, WriteError, Writer};
 use super::Msg;
 
 use bitflags::bitflags;
+use core::str::FromStr;
 
 bitflags! {
    /// The base asymetric signing algorithm defined in the SPDM spec
@@ -39,6 +40,30 @@ impl BaseAsymAlgo {
     }
 }
 
+impl FromStr for BaseAsymAlgo {
+    type Err = ReadError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let algo = match s {
+            "RSASSA_2048" => BaseAsymAlgo::RSASSA_2048,
+            "RSAPSS_2048" => BaseAsymAlgo::RSAPSS_2048,
+            "RSASSA_3072" => BaseAsymAlgo::RSASSA_3072,
+            "RSAPSS_3072" => BaseAsymAlgo::RSAPSS_3072,
+            "ECDSA_ECC_NIST_P256" => BaseAsymAlgo::ECDSA_ECC_NIST_P256,
+            "RSASSA_4096" => BaseAsymAlgo::RSASSA_4096,
+            "RSAPSS_4096" => BaseAsymAlgo::RSAPSS_4096,
+            "ECDSA_ECC_NIST_P384" => BaseAsymAlgo::ECDSA_ECC_NIST_P384,
+            "ECDSA_ECC_NIST_P521" => BaseAsymAlgo::ECDSA_ECC_NIST_P521,
+            _ => {
+                return Err(ReadError::new(
+                    "BaseAsymAlgo",
+                    ReadErrorKind::UnexpectedValue,
+                ))
+            }
+        };
+        Ok(algo)
+    }
+}
+
 bitflags! {
     /// The base hash algorithm defined in the SPDM spec.
     #[derive(Default)]
@@ -62,6 +87,27 @@ impl BaseHashAlgo {
             H::SHA_512 | H::SHA3_512 => 64,
             _ => unreachable!(),
         }
+    }
+}
+
+impl FromStr for BaseHashAlgo {
+    type Err = ReadError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let algo = match s {
+            "SHA_256" => BaseHashAlgo::SHA_256,
+            "SHA_384" => BaseHashAlgo::SHA_384,
+            "SHA_512" => BaseHashAlgo::SHA_512,
+            "SHA3_256" => BaseHashAlgo::SHA3_256,
+            "SHA3_384" => BaseHashAlgo::SHA3_384,
+            "SHA3_512" => BaseHashAlgo::SHA3_512,
+            _ => {
+                return Err(ReadError::new(
+                    "BaseHashAlgo",
+                    ReadErrorKind::UnexpectedValue,
+                ))
+            }
+        };
+        Ok(algo)
     }
 }
 

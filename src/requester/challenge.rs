@@ -18,6 +18,19 @@ use crate::msgs::{
 
 use crate::Transcript;
 
+// This is purposefully hardcoded as device certs mostly will not expire and we
+// need *some* valid time. Furthermore, during early boot we will not have
+// access to a trusted source of time.
+//
+// An alternative would be to disable the time checck in a patched version of
+//  WebPKI.
+//
+// This may not work for all consumers of this library.
+// Tracked in https://github.com/oxidecomputer/spdm/issues/31
+//
+// December 1, 2021 00:00:00 GMT
+const UNIX_TIME: u64 = 1638316800;
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Transition {
     Placeholder,
@@ -58,12 +71,14 @@ impl From<id_auth::State> for State {
 
 impl State {
     /// Write a CHALLENGE msg to the buffer, and append it to the transcript.
-    pub fn write_challenge_msg<'a>(
+    pub fn write_msg<'a>(
         &mut self,
-        measurement_hash_type: MeasurementHashType,
         buf: &'a mut [u8],
         transcript: &mut Transcript,
     ) -> Result<&'a [u8], RequesterError> {
+        // We plan to have the user retrieve measurements in a secure channel
+        // Is there also a need to retrieve them during challenge-response?
+        let measurement_hash_type = MeasurementHashType::None;
         let challenge = Challenge::new(self.cert_slot, measurement_hash_type);
         self.nonce = challenge.nonce;
         let size = challenge.write(buf).map_err(|e| RequesterError::from(e))?;
@@ -79,7 +94,6 @@ impl State {
         buf: &[u8],
         transcript: &mut Transcript,
         root_cert: &[u8],
-        seconds_since_unix_epoch: u64,
     ) -> Result<Transition, RequesterError> {
         expect::<ChallengeAuth>(buf)?;
         let hash_algo = self.algorithms.base_hash_algo_selected;
@@ -124,7 +138,7 @@ impl State {
             m2_hash.as_ref(),
             rsp.signature(),
             root_cert,
-            seconds_since_unix_epoch,
+            UNIX_TIME,
         )
     }
 
