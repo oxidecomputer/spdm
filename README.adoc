@@ -5,14 +5,367 @@ microcontrollers and async networking in application level code. It is a `#[no_s
 performs zero heap allocations. It also attempts to minimize the number of built in stack
 allocations, deferring allocation of any memory to the user of this library.
 
+IMPORTANT: This repo is under active development and subject to change at any
+time without notice. Implementation of the protocol is not yet complete.
+
+== Navigating
+
+* `src/crypto/` - Traits and implementations for cryptographic primitives
+* `src/msgs/` - All messsages defined by the protocol. Requests and response
+messages are bundled together into a single file.
+* `src/requester.rs` - Contains the `Requester` type for use directly by the
+user.
+* `src/requester/` - Individual states for the requester side of the protocol.
+These are wrapped and transitioned in the `Requester` type.
+* `src/responder.rs` - Contains the `Responder` type for use directly by the
+user.
+* `src/responder/` - Individual states for the responder side of the protocol.
+These are wrapped and transitioned in the `Responder` type.
+* `test-utils/` - Tools used for development and testing. Primarily certificate
+generation so far.
+* `tests/` - Integration tests
+
+== Design
+
 The code follows the state machine of the SPDM protocol as closely as possible, and provides
 safety to the user via the https://cliffle.com/blog/rust-typestate/#continue-reading[typestate
-pattern].
+pattern]. Message exchanges for different phases of the protocol are split up
+into individual matching states in both the requester and responder. For
+example, version negotiaton lives in the `requester::version::State` and
+`responder::version::State` types, while challenge authentication lives in the
+`requester::challenge::State` and `responder::challenge::State`. By putting the
+logic for each part of the protocol inside its own state, we minimize the
+cognitive overhead necessary when reading the code, and can ensure explicitly
+that only messages appropriate to that state are handled. We can also test each
+state individually, and ensure that state transitions are appropriate. 
 
-No transports are, or will be, implemented in this library.
+While the typestate pattern is useful for helping to ensure implementation
+correctness at compile time, it is really most helpful for users of libraries
+when the typestates themselves vary in capability such that the states present
+different APIs based on those capabilities. This allows visibility to both the
+user and compiler of the progression of library usage so that one can see
+clearly that state 1 is complete, and now state 2 is in progress. As in the
+example given in the blog post above, typestates for an HTTP response may
+progress through the `StatusLine`, `Header`, and then `Body` states such that
+only appropriate content may be filled in by the user, and no state skipped
+before the response is completely generated. This example also shows that since
+each of these types are concrete, it is easiest to use them immediately and
+cycle through all of them *in order* inside a function before returning control
+flow to the caller. If the specific order of states is unknown at compile time,
+a wrapper enum would be needed to permit "saving" of a single "current" type
+between control flow contexts.
 
-== Usage
+With the SPDM protocol we do have distinct states and a flow between them driven
+by the protocol specification and the configured capabilities of a specific
+deployment. However, what we do not have, is satisfaction of the
+other two conditions that make typestate based APIs ergonomic for users:
 
-Currently the best guide to usage is the link:tests/protocol.rs[successful_e2e] integration test.
+ 1. Significantly different API surfaces.
+ 2. The ability to walk through all states of the protocol deterministically, in
+order.
 
+We do not have the first condition, because the SPDM protocol logic is well
+defined, and not driven directly by the user outside of configuration. As
+transport specific logic is manged by the user application, each requester API
+consists primarily of getting the next serialized request in the protocol to
+send, and then calling `handle_msg` with the serialized response when it is
+received. The basic responder API for each state is even simpler, and consists
+solely of a `handle_msg` method which receives a request and returns a
+serialized response to send. The remote nature of the client-server protocol,
+and the possiblity, particularly in the responder, of unknown state transitions based on
+message receipt, eliminates the second condition. 
 
+With the lack of these two conditions, it turns out that regardless of
+transport, the user ends up writing very similar code that cycles through all
+the states, taking into account any minor differences in API parameters, and
+wrapping output states into an Enum. Most importantly, **every** user of this
+library has to write this similarly tedious code, and spend the time to lookup
+and understand all the different states in the SPDM protocol, possibly making
+subtle mistakes along the way. Instead, what we want is to maintain the clarity
+and safety of typestate based protocol code, but vastly simplify the user
+experience.
+
+What we have done to enhance the ergonomics of this library is to implement
+wrapper `Requester` and `Responder` types that maintain a consistent API across
+all states when appropriate. The underlying states themselves are not used
+directly, and the user no longer needs to understand the internals or message
+flow of the SPDM protocol. In short, this library becomes much easier to use.
+Usage of the `Requester` and `Responder` types and their APIs are described in
+the following two subsections.
+
+=== Requester API
+
+The above section was actually a bit misleading. We do use a typestate based API for the
+requester, but the typestates are not the protocol states. They instead relate to
+the two distinct phases of the protocol important to a user of this library:
+
+ 1. Secure session initialization
+ 2. Application level messaging
+
+The first phase is fully autonomous in that besides configuration, the user does
+not have to specify what messages get exchanged. They just have to run the
+protocol to completion and ensure messages get sent and received over transport
+that they themselves maintain. This phase is encapsulated in the
+https://github.com/oxidecomputer/spdm/blob/bf40def68f149b3f17f25a4f296aaddfb634c6f3/src/requester.rs#L64-L70[RequesterInit]
+state.
+
+The second phase is where the user sends encrypted and/or authenticated messages
+over a secure SPDM channel, and also can retrieve measurements on demand. This
+is the
+https://github.com/oxidecomputer/spdm/blob/bf40def68f149b3f17f25a4f296aaddfb634c6f3/src/requester.rs#L72-L77[RequesterSession]
+state. While the SPDM protocol allows retrieval of measurements outside of a
+secure session, there isn't much benefit to doing this, except for a slight
+reduction in overhead. By logically separating the two phases, we make the
+system easier to use. We can always provide a method for the `RequesterSession`
+state that allows retrieving measurements outside the secure session if desired.
+
+NOTE: The `RequesterSession` state is not yet implemented and the
+`RequesterInit` state is incomplete.
+
+The pseudocode below shows an example of using the requester states.
+
+[source,rust]
+----
+let transport = initTransport();
+let root_cert = getRootCert();
+let slots = someCertificateSlots();
+
+let mut write_buf = [0u8; MAX_BUF_SIZE];
+let mut read_buf = [0u8; MAX_BUF_SIZE];
+
+// Assume for now all slots share the same root cert
+let mut requester = RequesterInit::new(&root_cert, &slots);
+
+let mut initialization_complete = true;
+while !initialization_complete {
+    let request = requester.next_request(&mut write_buf)?; 
+    transport.send(request)?;
+
+    // Subslice of read_buf returned
+    let response = transport.recv(&mut read_buf)?;
+    initialization_complete = requester.handle_msg(response)?;
+}
+
+// Time to make the donuts!
+let mut requester = requester.begin_session();
+
+// The following is all speculative, as the API is not yet created.
+
+// Get measurements
+let request = requester.measurement_request(&mut write_buf)?;
+transport.send(request)?;
+let response = transport.recv(&mut read_buf)?;
+let measurements = requester.handle_measurements(response)?
+
+// Do something with measurements
+...
+
+// Serialize application level data.
+// Assume a buffer is owned by the application code and a slice is returned.
+let app_req = generate_some_app_request()?
+
+// Send an encrypted/authenticated request and decode the response
+let request = requester.secure_request(&mut write_buf, app_req)?;
+transport.send(request)?;
+let response = transport.recv(&mut read_buf)?;
+let app_response = deserialize(requester.handle_secure_response(response)?)?;
+
+// Do something with app level response
+...
+
+----
+
+=== Responder API
+
+Session establishment is not yet differentiated in the `Responder` API, as all
+the code required to create a session has not been completed, and it's unclear
+if there should be two typestates here like in the requester. This section will
+instead show an example of how to use the Responder API as it currently exists.
+
+First though let's take a look at the API for the primary method of the
+`Responder`.
+
+[source,rust]
+----
+pub fn handle_msg<'b>(
+    &mut self,
+    req: &[u8],
+    rsp: &'b mut [u8],
+) -> (&'b [u8], Result<(), ResponderError>);
+----
+
+When a request is received over the transport, it arrives as a slice. A mutable
+buffer with which to write the response is passed in, and a tuple containing a
+slice referring to that buffer with the actual data written, and a result is
+returned. This is a curious, and somewhat unidiomatic API, so it is important to
+understand its motivation. The rationale for this, is that there is almost *always*
+data written to the buffer, even if an error occurs. The written data in that
+case is the error response, which will be an empty slice if no response needs to
+be written. The caller can then send the response over the transport regardless
+of if an error was received or not, and then respond to the error as
+appropriate. In most cases this likely means closing the transport and dropping
+the Responder.
+
+It's also important to state again, that we haven't yet worked out what this API
+will look like during the application phase of the protocol. The signature may
+change or we may transition to a new typestate that returns application level
+requests to the caller and allows manual replies.
+
+Example usage of this API in existing code is shown below.
+
+[source,rust]
+----
+let req_buf = [0u8; MAX_BUF_SIZE];
+let rsp_buf = [0u8; MAX_BUF_SIZE];
+let transport = init_transport()?;
+
+let slots = someCertificateSlots();
+
+let mut responder = Responder::new(slots);
+
+loop {
+    let request = transport.recv(&mut req_buf)?;
+    let (response, result) = responder.handle_msg(&req_buf, &mut rsp_buf);
+    transport.send(response)?;
+    if let Err(err) == result {
+        return Err(err);
+    }
+}
+
+----
+
+=== Messages and Encoding
+
+SPDM Defines a binary encoding for all messages. This encoding does not follow a
+grammar, and so reading(deserialization) and writing(serialization) is done by
+direct ad-hoc implementation. To ease development,
+https://github.com/oxidecomputer/spdm/blob/bf40def68f149b3f17f25a4f296aaddfb634c6f3/src/msgs/encoding.rs#L47-L127[Writer]
+and
+https://github.com/oxidecomputer/spdm/blob/bf40def68f149b3f17f25a4f296aaddfb634c6f3/src/msgs/encoding.rs#L205-L377[Reader]
+classes are provided. 
+
+Each message in the SPDM protocol doc consists of a 4-byte header, followed by
+message dependent fields for the remainder of the message. However, while all 4
+bytes are required for each message, only the first two bytes share meaning
+across messages, with byte one representing the message code, and byte two the
+version. Because of this, our implementation defines the header as two bytes, and
+each message implements (de)serialization of the remaining two header bytes as
+if they were part of the body. Wnen implemented this way, the user only has to
+write the message specific serialization and deserialization code, while the
+rest can be provided from the shared
+https://github.com/oxidecomputer/spdm/blob/bf40def68f149b3f17f25a4f296aaddfb634c6f3/src/msgs/mod.rs#L39-L93[Msg]
+trait methods.
+
+=== Configuration 
+
+Because this library is a `no_std` codebase intended to run on resource
+constrained microcontrollers, buffer sizes must be defined at compile time.
+Additionally, builds may target specific platforms with support for hardware
+assisted cryptography, which must also be known at build time. Therefore, a rust
+configuration is generated by a
+https://github.com/oxidecomputer/spdm/blob/bf40def68f149b3f17f25a4f296aaddfb634c6f3/build.rs[build
+script] which consumes a
+https://github.com/oxidecomputer/spdm/blob/bf40def68f149b3f17f25a4f296aaddfb634c6f3/spdm-config.toml[TOML
+file]. The build script
+ https://github.com/oxidecomputer/spdm/blob/bf40def68f149b3f17f25a4f296aaddfb634c6f3/build.rs#L156-L185[fills
+ in]
+a
+https://github.com/oxidecomputer/spdm/blob/bf40def68f149b3f17f25a4f296aaddfb634c6f3/config.rs.template[template]
+ to generate the actual configuration based on the contents of the TOML file.
+
+This template generation is straightforward without the need for a dependency, although it may be safer to use a
+name based generator rather than relying on argument position. 
+
+It should also be mentioned that we plan to drive the requester state
+transitions for the session initialization phase via the capabilities present in
+the configuration. For example, if pre-shared keys are in use via `PSK_CAP`,
+then the states managing PSK related message exchanges will be utilized. In this
+case the mutually exclusive `CERT_CAP` which indicates usage of digests and
+certificates will not have its related states entered or messages exchanges 
+performed. To be more concrete: If `PSK_CAP` is enabled then the following
+message exchanges will be implemented:
+
+ * `PSK_EXCHANGE` - `PSX_EXCHANGE_RSP`
+ * `PSK_FINISH` - `PSK_FINISH_RSP`
+
+The following, mutually exclusive message exchanges will not be implemented if `PSK_CAP` is
+enabled:
+
+ * `GET_DIGESTS` - `DIGESTS`
+ * `GET_CERTIFICATE` - `CERTIFICATE`
+ * `KEY_EXCHANGE` - `KEY_EXCHANGE_RSP`
+ * `FINISH` - `FINISH_RSP`
+
+Additionally, no signing will be available for measurement requests or challenge
+response.
+
+The benefit of driving the requester state machine through configuration is that
+the user of this library does not have to be aware of the details of the
+implementation and ensure proper state machine flow manually.
+
+=== Platform specific code
+
+All platform specific code must be abstracted into traits. Implementations
+should live behind cargo or our build time TOML based configuration. This
+determination is TBD.
+
+==== Cryptography
+All code that is part of this library must be `no_std` compliant. That includes
+cryptography. Currently all software RSA implementations in rust require
+dynamic allocation, which is not permitted here. This is also fine, because
+really, you shouldn't be using RSA if something else is available.
+
+Currently, only
+https://github.com/oxidecomputer/spdm/blob/bf40def68f149b3f17f25a4f296aaddfb634c6f3/src/crypto/signing.rs[signing] and 
+https://github.com/oxidecomputer/spdm/blob/bf40def68f149b3f17f25a4f296aaddfb634c6f3/src/crypto/pki.rs[verification]
+based on ECDSA and SHA(3)_XXX
+https://github.com/oxidecomputer/spdm/blob/main/src/crypto/digest.rs[digests] are
+implemented. These implementations are backed by
+https://github.com/briansmith/ring[ring] and
+https://github.com/briansmith/webpki[webpki]. 
+
+While not currently done, we intend to put all crypto implementations behind
+cargo features or the toml based configuration. This will allow utilization of
+HW based implementations when needed. We can perhaps even allow people to opt-in
+to allocation based implementations, although that seems like it may be a bridge
+too far.
+
+Another important part of the SPDM protocol is that it allows up to eight slots
+of certificate chains to be used for different purposes. We encode this functionality
+in the
+https://github.com/oxidecomputer/spdm/blob/bf40def68f149b3f17f25a4f296aaddfb634c6f3/src/crypto/slot.rs[FilledSlot] abstraction which describes the algorithms used by the given
+certificate. 
+
+Note since each slot, even if empty,  takes up a memory buffer of
+https://github.com/oxidecomputer/spdm/blob/bf40def68f149b3f17f25a4f296aaddfb634c6f3/config.rs.template#L7-L9[MAX_CERT_CHAIN_SIZE],
+we allow restricting the number of slots available to an implementation when
+more are not needed and memory pressure is significant. This can be done via the
+https://github.com/oxidecomputer/spdm/blob/bf40def68f149b3f17f25a4f296aaddfb634c6f3/config.rs.template#L5[NUM_SLOTS]
+configuration value.
+
+==== Measurements
+
+The Measurements message, and trait interface is not yet implemented. 
+
+=== Thoughts on Upgrade
+
+SPDM is a versioned protocol with negotiation up front. We are planning to
+support versions 1.2 and later. As such, when we end up implementing more than
+one version of the protocol, only the negotiated versions of messages will be
+sent and received. It's possible that we also will implement separate states for
+these messages and transition the requester and responder state machines via the
+negotiated version in a manner similar to that done with capabilities in the
+requester. Whether or not separate states in the underlying state machines are
+utilized depends on how large of a jump the protocol takes and whether or not
+only a few fields are added to different messages. In some cases, as in the
+difference between version 1.1 and 1.2 of the SPDM specification, we can simply
+not support 1.2 capabilities such as message chunking, and not send related
+fields. This may not always be the case however, and we should be open to more
+complex methods to maintain code clarity and safety.
+
+== Testing
+
+All messages should have at least round-trip serialization tests. Some states
+also have unit tests. An example that steps through a complete happy path of the
+currently implemented protocol for both requester and responder exists in the
+link:tests/protocol.rs[successful_e2e] integration test.
