@@ -136,7 +136,7 @@ let mut read_buf = [0u8; MAX_BUF_SIZE];
 // Assume for now all slots share the same root cert
 let mut requester = RequesterInit::new(&root_cert, &slots);
 
-let mut initialization_complete = true;
+let mut initialization_complete = false;
 while !initialization_complete {
     let request = requester.next_request(&mut write_buf)?; 
     transport.send(request)?;
