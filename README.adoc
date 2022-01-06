@@ -306,7 +306,7 @@ implementation and ensure proper state machine flow manually.
 === Platform specific code
 
 All platform specific code must be abstracted into traits. Implementations
-should live behind cargo or our build time TOML based configuration. This
+should live behind cargo features or our build time TOML based configuration. This
 determination is TBD.
 
 ==== Cryptography
@@ -345,7 +345,7 @@ configuration value.
 
 ==== Measurements
 
-The Measurements message, and trait interface is not yet implemented. 
+The `MEASUREMENTS` message, and trait interface is not yet implemented. 
 
 === Thoughts on Upgrade
 
