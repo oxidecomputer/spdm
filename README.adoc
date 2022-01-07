@@ -31,7 +31,7 @@ The code follows the state machine of the SPDM protocol as closely as possible, 
 safety to the user via the https://cliffle.com/blog/rust-typestate/#continue-reading[typestate
 pattern]. Message exchanges for different phases of the protocol are split up
 into individual matching states in both the requester and responder. For
-example, version negotiaton lives in the `requester::version::State` and
+example, version negotiation lives in the `requester::version::State` and
 `responder::version::State` types, while challenge authentication lives in the
 `requester::challenge::State` and `responder::challenge::State`. By putting the
 logic for each part of the protocol inside its own state, we minimize the
@@ -250,7 +250,7 @@ bytes are required for each message, only the first two bytes share meaning
 across messages, with byte one representing the message code, and byte two the
 version. Because of this, our implementation defines the header as two bytes, and
 each message implements (de)serialization of the remaining two header bytes as
-if they were part of the body. Wnen implemented this way, the user only has to
+if they were part of the body. When implemented this way, the user only has to
 write the message specific serialization and deserialization code, while the
 rest can be provided from the shared
 https://github.com/oxidecomputer/spdm/blob/bf40def68f149b3f17f25a4f296aaddfb634c6f3/src/msgs/mod.rs#L39-L93[Msg]
