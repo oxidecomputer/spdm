@@ -4,6 +4,7 @@
 
 use super::algorithms::MeasurementSpec;
 use super::challenge;
+use super::common::OpaqueData;
 use super::encoding::{
     ReadError, ReadErrorKind, Reader, WriteError, WriteErrorKind, Writer,
 };
@@ -282,8 +283,10 @@ pub struct Measurements {
     pub blocks: [MeasurementBlock; config::MAX_MEASUREMENT_BLOCKS],
 
     pub nonce: [u8; 32],
+    pub opaque_data: OpaqueData,
 
-    pub opaque_data_len: u16,
+    pub signature_size: usize,
+    pub signature: [u8; config::MAX_SIGNATURE_SIZE],
 }
 
 #[cfg(test)]

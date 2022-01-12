@@ -16,7 +16,7 @@ use crate::crypto::{
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
 use crate::msgs::{
     challenge::nonce, encoding::Writer, Algorithms, Challenge, ChallengeAuth,
-    Msg, HEADER_SIZE,
+    Msg, OpaqueData, HEADER_SIZE,
 };
 use crate::{reset_on_get_version, Transcript};
 
@@ -104,7 +104,7 @@ impl State {
             cert_chain_digest.as_ref(),
             nonce(),
             &measurement_summary_hash[..digest_size as usize],
-            &[],
+            OpaqueData::default(),
             &dummy_sig[..signature_size],
         );
 

@@ -25,6 +25,12 @@ pub enum WriteErrorKind {
 
     /// The integer value for the given field is not within the expected range
     InvalidRange(&'static str),
+
+    /// A value written for the given field was incorrect
+    UnexpectedValue(&'static str),
+
+    /// A value for the given field is too large
+    TooLarge { field: &'static str, max_size: usize, actual_size: usize },
 }
 
 impl Display for WriteErrorKind {
@@ -33,6 +39,16 @@ impl Display for WriteErrorKind {
             WriteErrorKind::BufferFull => write!(f, "buffer full"),
             WriteErrorKind::InvalidRange(field_name) => {
                 write!(f, "invalid range for field {}", field_name)
+            }
+            WriteErrorKind::UnexpectedValue(field_name) => {
+                write!(f, "unexpected value for field {}", field_name)
+            }
+            WriteErrorKind::TooLarge { field, max_size, actual_size } => {
+                write!(
+                    f,
+                    "too large value for field {}: max size={}, actual_size={}",
+                    field, max_size, actual_size
+                )
             }
         }
     }

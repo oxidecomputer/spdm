@@ -28,6 +28,7 @@ pub use algorithms::{Algorithms, NegotiateAlgorithms};
 pub use capabilities::{Capabilities, GetCapabilities};
 pub use certificates::{Certificate, CertificateChain, GetCertificate};
 pub use challenge::{Challenge, ChallengeAuth, MeasurementHashType};
+pub use common::{OpaqueData, OpaqueElement, VendorId, VendorRegistryId};
 pub use digest::{Digests, GetDigests};
 pub use encoding::{ReadError, ReadErrorKind, WriteError, WriteErrorKind};
 use encoding::{Reader, Writer};
