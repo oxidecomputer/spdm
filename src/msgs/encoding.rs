@@ -69,7 +69,7 @@ impl<'a> Writer<'a> {
         }
     }
 
-    /// Append a 0 byte onto the buffer.
+    /// Append `num_bytes` 0 bytes onto the buffer.
     ///
     /// This is a first class method because the protocol has so many
     /// reserved bytes.

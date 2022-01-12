@@ -14,3 +14,12 @@ buf_size = 4096
 [algorithms]
 asymmetric_signing = ["ECDSA_ECC_NIST_P256"]
 hash = ["SHA_256", "SHA_512"]
+
+[measurement]
+max_blocks = 8
+max_size = 1024
+
+# Configuration for general opaque data from section 14 of SPDM 1.2.0 spec
+[opaque_data]
+max_elements = 2
+max_element_data_size = 16

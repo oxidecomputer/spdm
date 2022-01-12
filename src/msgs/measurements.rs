@@ -2,6 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+use super::algorithms::MeasurementSpec;
 use super::challenge;
 use super::encoding::{
     ReadError, ReadErrorKind, Reader, WriteError, WriteErrorKind, Writer,
@@ -9,6 +10,7 @@ use super::encoding::{
 use super::Msg;
 use crate::config;
 
+use bitflags::bitflags;
 use core::convert::{From, TryFrom, TryInto};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -97,7 +99,7 @@ impl TryFrom<&MeasurementIndex> for u8 {
     }
 }
 
-// Request measurements from a responder.
+/// Request measurements from a responder.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GetMeasurements {
     // Param1
@@ -183,6 +185,105 @@ impl GetMeasurements {
 
         Ok(GetMeasurements { attributes, index, nonce, slot_id })
     }
+}
+
+/// Bits 5:4 of Param2 in MEASUREMENTS message
+#[derive(Debug, Clone, PartialEq)]
+pub enum ContentChanged {
+    // 0b00
+    NotSupported,
+    // 0b01
+    True,
+    // 0b10
+    False,
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, PartialEq)]
+pub enum DmtfMeasurementValueRepresentation {
+    Digest = 0x00,
+    RawBitStream = 0x80,
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, PartialEq)]
+pub enum DmtfMeasurementValueType {
+    ImmutableRom = 0x00,
+    MutableFirmware = 0x01,
+    HardwareConfig = 0x02,
+    FirmwareConfig = 0x03,
+    MeasurementManifest = 0x04,
+    DeviceMode = 0x05,
+    MutableFirmwareVersion = 0x06,
+    MutableFirmwareSecurityVersion = 0x07,
+}
+
+bitflags! {
+    /// Fields 0 and 1 of DeviceMode
+    #[derive(Default)]
+    pub struct OperationalMode : u32 {
+        const MANUFACTURING = 0x1;
+        const VALIDATION = 0x2;
+        const NORMAL = 0x4;
+        const RECOVERY = 0x8;
+        const RMA = 0x10;
+        const DECOMMISSIONED = 0x20;
+    }
+}
+
+bitflags! {
+    /// Fields 2 and 3 of DeviceMode
+    #[derive(Default)]
+    pub struct DeviceModeActive : u32 {
+        const NON_INVASIVE_DEBUG = 0x1;
+        const INVASIVE_DEBUG = 0x2;
+        const NON_INVASIVE_DEBUG_RESET_CYCLE = 0x4;
+        const INVASIVE_DEBUG_RESET_CYCLE = 0x8;
+        const INVASIVE_DEBUG_AT_LEAST_ONCE_AFTER_MANUFACTURING_MODE = 0x20;
+    }
+
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeviceMode {
+    pub operational_mode_capabilities: OperationalMode,
+    pub operational_mode_state: OperationalMode,
+    pub device_mode_capabilities: DeviceModeActive,
+    pub device_mode_state: DeviceModeActive,
+}
+
+/// The DMTF measurement specification from table 45 of section 10.11.1.1 of the
+/// DMTF 1.2.0a spec.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DmtfMeasurement {}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MeasurementBlock {
+    pub index: u8,
+    pub measurement_spec_selected: MeasurementSpec,
+    pub measurement_size: u16,
+    pub measurement: DmtfMeasurement,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Measurements {
+    // Param1
+    pub num_measurement_indices: u8,
+
+    // Param2
+    pub content_changed: ContentChanged,
+
+    // slot_id of cert chain specified in GET_MEASUREMENTS request
+    // Only used for signature generation.
+    // Set to 0 if no signature in this message
+    pub slot_id: u8,
+
+    pub num_blocks: u8,
+    pub blocks: [MeasurementBlock; config::MAX_MEASUREMENT_BLOCKS],
+
+    pub nonce: [u8; 32],
+
+    pub opaque_data_len: u16,
 }
 
 #[cfg(test)]
