@@ -174,7 +174,7 @@ impl GetMeasurements {
         let mut slot_id = 0;
         if attributes.signature_requested {
             nonce = Some([0u8; 32]);
-            nonce.as_mut().unwrap().copy_from_slice(r.get_slice(32)?);
+            r.get_slice(32, nonce.as_mut().unwrap())?;
             slot_id = r.get_byte()?;
             if (slot_id as usize) >= config::NUM_SLOTS {
                 return Err(ReadError::new(

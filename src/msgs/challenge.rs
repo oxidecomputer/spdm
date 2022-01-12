@@ -80,7 +80,7 @@ impl Challenge {
         let slot = r.get_byte()?;
         let measurement_hash_type = r.get_byte()?.try_into()?;
         let mut nonce = [0u8; 32];
-        nonce.copy_from_slice(r.get_slice(32)?);
+        r.get_slice(32, &mut nonce)?;
         Ok(Challenge { slot, measurement_hash_type, nonce })
     }
 }
@@ -248,15 +248,13 @@ impl ChallengeAuth {
         let slot_mask = r.get_byte()?;
 
         let mut cert_chain_hash = [0u8; MAX_DIGEST_SIZE];
-        cert_chain_hash[..digest_size as usize]
-            .copy_from_slice(r.get_slice(digest_size as usize)?);
+        r.get_slice(digest_size as usize, &mut cert_chain_hash)?;
 
         let mut nonce = [0u8; 32];
-        nonce.copy_from_slice(r.get_slice(32)?);
+        r.get_slice(32, &mut nonce)?;
 
         let mut measurement_summary_hash = [0u8; MAX_DIGEST_SIZE];
-        measurement_summary_hash[..digest_size as usize]
-            .copy_from_slice(r.get_slice(digest_size as usize)?);
+        r.get_slice(digest_size as usize, &mut measurement_summary_hash)?;
 
         let opaque_data_len = r.get_u16()?;
 
@@ -269,8 +267,7 @@ impl ChallengeAuth {
         let opaque_data = OpaqueData::read(&mut r)?;
 
         let mut signature = [0u8; MAX_SIGNATURE_SIZE];
-        signature[..signature_size as usize]
-            .copy_from_slice(r.get_slice(signature_size as usize)?);
+        r.get_slice(signature_size as usize, &mut signature)?;
 
         Ok(ChallengeAuth {
             slot,

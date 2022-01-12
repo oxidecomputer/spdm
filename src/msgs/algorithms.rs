@@ -289,7 +289,7 @@ impl AlgorithmRequest {
     ) -> Result<AlgorithmRequest, ReadError> {
         match r.get_byte()? {
             DheAlgorithm::TYPE => {
-                let ext_count = r.get_bits(4)?;
+                let ext_count = r.get_bits(4)? as usize;
                 let fixed_count = r.get_bits(4)?;
                 if fixed_count != DheAlgorithm::FIXED_ALG_COUNT {
                     return Err(ReadError::new(
@@ -307,7 +307,7 @@ impl AlgorithmRequest {
             }
 
             AeadAlgorithm::TYPE => {
-                let ext_count = r.get_bits(4)?;
+                let ext_count = r.get_bits(4)? as usize;
                 let fixed_count = r.get_bits(4)?;
                 if fixed_count != AeadAlgorithm::FIXED_ALG_COUNT {
                     return Err(ReadError::new(
@@ -325,7 +325,7 @@ impl AlgorithmRequest {
             }
 
             ReqBaseAsymAlgorithm::TYPE => {
-                let ext_count = r.get_bits(4)?;
+                let ext_count = r.get_bits(4)? as usize;
                 let fixed_count = r.get_bits(4)?;
                 if fixed_count != ReqBaseAsymAlgorithm::FIXED_ALG_COUNT {
                     return Err(ReadError::new(
@@ -349,7 +349,7 @@ impl AlgorithmRequest {
             }
 
             KeyScheduleAlgorithm::TYPE => {
-                let ext_count = r.get_bits(4)?;
+                let ext_count = r.get_bits(4)? as usize;
                 let fixed_count = r.get_bits(4)?;
                 if fixed_count != KeyScheduleAlgorithm::FIXED_ALG_COUNT {
                     return Err(ReadError::new(
@@ -463,8 +463,8 @@ impl NegotiateAlgorithms {
         // A responder will never select these algorithms, as they are not
         // currently supported. However, the data must still be properly skipped
         // over.
-        let ext_asym_count = r.get_byte()?;
-        let ext_hash_count = r.get_byte()?;
+        let ext_asym_count = r.get_byte()? as usize;
+        let ext_hash_count = r.get_byte()? as usize;
 
         r.skip_reserved(2)?;
 

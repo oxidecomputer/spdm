@@ -95,8 +95,7 @@ impl<const N: usize> Certificate<N> {
         }
         let remainder_length = r.get_u16()?;
         let mut cert_chain = [0u8; N];
-        cert_chain[0..portion_length as usize]
-            .copy_from_slice(r.get_slice(portion_length as usize)?);
+        r.get_slice(portion_length as usize, &mut cert_chain)?;
 
         Ok(Certificate { slot, portion_length, remainder_length, cert_chain })
     }
@@ -221,7 +220,7 @@ impl<'a> CertificateChain<'a> {
         }
         r.skip_reserved(2)?;
         let offset = r.byte_offset();
-        r.skip_ignored(digest_size)?;
+        r.skip_ignored(digest_size.into())?;
         let root_hash = &buf[offset..offset + digest_size as usize];
 
         let mut num_intermediate_certs = 0u8;
@@ -249,7 +248,7 @@ impl<'a> CertificateChain<'a> {
                 &buf[offset..end];
             num_intermediate_certs += 1;
 
-            let _ = r.get_slice(length)?;
+            r.skip_ignored(length)?;
         };
 
         let leaf_cert = &buf[leaf_offset..];

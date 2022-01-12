@@ -126,8 +126,7 @@ impl<const NUM_SLOTS: usize> Digests<NUM_SLOTS> {
         let mut bits = slot_mask;
         let mut k = bits.trailing_zeros() as usize;
         while k < NUM_SLOTS {
-            digests[k].buf[..digest_size as usize]
-                .copy_from_slice(r.get_slice(digest_size as usize)?);
+            r.get_slice(digest_size as usize, &mut digests[k].buf)?;
             bits ^= 1 << k;
             k = bits.trailing_zeros() as usize;
         }

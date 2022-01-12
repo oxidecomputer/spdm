@@ -134,10 +134,9 @@ impl OpaqueElement {
         let vendor_id = VendorId::read(r, vendor_id_len)?;
         let data_len = r.get_u16()?;
         let mut data = [0u8; config::MAX_OPAQUE_ELEMENT_DATA_SIZE];
-        data[..data_len as usize]
-            .copy_from_slice(r.get_slice(data_len as usize)?);
+        r.get_slice(data_len as usize, &mut data)?;
         let bytes_read = 4 + vendor_id_len as usize + data_len as usize;
-        r.skip_reserved(Self::padding(bytes_read) as u8)?;
+        r.skip_reserved(Self::padding(bytes_read))?;
         Ok(OpaqueElement { registry_id, vendor_id, data_len, data })
     }
 }
