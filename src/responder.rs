@@ -22,7 +22,7 @@ mod error;
 
 use crate::config;
 use crate::crypto::{FilledSlot, Signer};
-use crate::msgs::{self, CertificateChain, Msg};
+use crate::msgs::{self, Msg};
 use crate::Transcript;
 pub use error::ResponderError;
 
@@ -105,8 +105,7 @@ impl AllStates {
                 state.handle_msg(req, rsp, transcript)
             }
             AllStates::IdAuth(state) => {
-                let mut cert_chains: [Option<CertificateChain<'b>>;
-                    config::NUM_SLOTS] = [None; config::NUM_SLOTS];
+                let mut cert_chains = [None; config::NUM_SLOTS];
                 for i in 0..slots.len() {
                     cert_chains[i] =
                         slots[i].as_ref().map(|s| s.cert_chain.clone());

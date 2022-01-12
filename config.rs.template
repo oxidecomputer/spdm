@@ -21,9 +21,17 @@ pub const MAX_DIGEST_SIZE: usize = {};
 /// The maximum size of a signature in bytes
 pub const MAX_SIGNATURE_SIZE: usize = {};
 
-/// ChallengeAuth responses allow opaque data.
-/// This is probably not necessary for most users/transports.
-pub const MAX_OPAQUE_DATA_SIZE: usize = {};
+/// The maximum size of an opaque element data from table 93 in v1.2.0 of the SPDM spec
+pub const MAX_OPAQUE_ELEMENT_DATA_SIZE: usize = {};
+
+/// The maximum number of opaque elements from table 92 in v1.2.0 of the SPDM spec
+pub const MAX_OPAQUE_ELEMENTS: usize = {};
+
+/// The maximum number of measurement blocks available
+pub const MAX_MEASUREMENT_BLOCKS: usize = {};
+
+/// The maximum size of an individual measurement
+pub const MAX_MEASUREMENT_SIZE: usize = {};
 
 // The capabilities for a given endpoint
 //

@@ -25,6 +25,12 @@ pub enum WriteErrorKind {
 
     /// The integer value for the given field is not within the expected range
     InvalidRange(&'static str),
+
+    /// A value written for the given field was incorrect
+    UnexpectedValue(&'static str),
+
+    /// A value for the given field is too large
+    TooLarge { field: &'static str, max_size: usize, actual_size: usize },
 }
 
 impl Display for WriteErrorKind {
@@ -33,6 +39,16 @@ impl Display for WriteErrorKind {
             WriteErrorKind::BufferFull => write!(f, "buffer full"),
             WriteErrorKind::InvalidRange(field_name) => {
                 write!(f, "invalid range for field {}", field_name)
+            }
+            WriteErrorKind::UnexpectedValue(field_name) => {
+                write!(f, "unexpected value for field {}", field_name)
+            }
+            WriteErrorKind::TooLarge { field, max_size, actual_size } => {
+                write!(
+                    f,
+                    "too large value for field {}: max size={}, actual_size={}",
+                    field, max_size, actual_size
+                )
             }
         }
     }
@@ -69,7 +85,7 @@ impl<'a> Writer<'a> {
         }
     }
 
-    /// Append a 0 byte onto the buffer.
+    /// Append `num_bytes` 0 bytes onto the buffer.
     ///
     /// This is a first class method because the protocol has so many
     /// reserved bytes.
@@ -231,7 +247,7 @@ impl<'a> Reader<'a> {
     /// Skip over the next `num_bytes` in the buffer.
     ///
     /// Ensure that these bytes are set to 0.
-    pub fn skip_reserved(&mut self, num_bytes: u8) -> Result<(), ReadError> {
+    pub fn skip_reserved(&mut self, num_bytes: usize) -> Result<(), ReadError> {
         for _ in 0..num_bytes {
             let byte = self.get_byte()?;
             if byte != 0 {
@@ -243,7 +259,7 @@ impl<'a> Reader<'a> {
 
     /// Skip over the next `num_bytes` in the buffer without checking their
     /// value.
-    pub fn skip_ignored(&mut self, num_bytes: u8) -> Result<(), ReadError> {
+    pub fn skip_ignored(&mut self, num_bytes: usize) -> Result<(), ReadError> {
         for _ in 0..num_bytes {
             self.get_byte()?;
         }
@@ -316,10 +332,16 @@ impl<'a> Reader<'a> {
         Ok(u16::from_le_bytes(*buf))
     }
 
-    /// Return a slice and advance the cursor.
+    /// Copy a slice of `size` into `buf` and advance the cursor.
+    ///
+    /// `buf` must be at least `size` bytes long
     ///
     /// This only works for aligned reads.
-    pub fn get_slice(&mut self, size: usize) -> Result<&[u8], ReadError> {
+    pub fn get_slice(
+        &mut self,
+        size: usize,
+        buf: &mut [u8],
+    ) -> Result<(), ReadError> {
         if !self.is_aligned() {
             return Err(self.err(ReadErrorKind::Unaligned));
         }
@@ -330,7 +352,8 @@ impl<'a> Reader<'a> {
 
         let start = self.byte_offset;
         self.byte_offset += size;
-        Ok(&self.buf[start..self.byte_offset])
+        buf[..size].copy_from_slice(&self.buf[start..self.byte_offset]);
+        Ok(())
     }
 
     /// Read a u32 in little endian byte order

@@ -37,9 +37,10 @@ pub struct State {
     pub algorithms: Algorithms,
 
     // GET_DIGESTS and GET_CERTIFICATE messages will not be issued if the public
-    // key of the responder was provisioned in a trusted environment.
-    pub digests: Option<Digests<NUM_SLOTS>>,
-    pub cert_chain: Option<Certificate<MAX_CERT_CHAIN_SIZE>>,
+    // key of the responder was provisioned in a trusted environment or if
+    // CAP_PSK is enabled.
+    pub digests: Option<Digests>,
+    pub cert_chain: Option<Certificate>,
 }
 
 impl From<algorithms::State> for State {
@@ -83,7 +84,7 @@ impl State {
         buf: &[u8],
         transcript: &mut Transcript,
     ) -> Result<(), RequesterError> {
-        expect::<Digests<NUM_SLOTS>>(buf)?;
+        expect::<Digests>(buf)?;
         let digest_size =
             self.algorithms.base_hash_algo_selected.get_digest_size();
         let digests = Digests::parse_body(digest_size, &buf[HEADER_SIZE..])?;
@@ -100,7 +101,7 @@ impl State {
         buf: &'a mut [u8],
         transcript: &mut Transcript,
     ) -> Result<&'a [u8], RequesterError> {
-        assert!(MAX_CERT_CHAIN_SIZE < 65536);
+        // TODO: Validate rather than assert in requester.rs ?
         assert!((slot as usize) < NUM_SLOTS);
         // TODO: Allow retrieiving cert chains from offsets. We assume for now
         // buffers are large enough to retrieve them in one round trip.
@@ -120,7 +121,7 @@ impl State {
         buf: &[u8],
         transcript: &mut Transcript,
     ) -> Result<challenge::State, RequesterError> {
-        expect::<Certificate<MAX_CERT_CHAIN_SIZE>>(buf)?;
+        expect::<Certificate>(buf)?;
         let cert = Certificate::parse_body(&buf[HEADER_SIZE..])?;
         self.cert_chain = Some(cert);
         transcript.extend(buf)?;

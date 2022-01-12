@@ -2,15 +2,17 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use super::{algorithms, challenge, expect, AllStates, ResponderError};
+use core::convert::TryFrom;
 
+use super::{algorithms, challenge, expect, AllStates, ResponderError};
 use crate::config::{MAX_CERT_CHAIN_SIZE, NUM_SLOTS};
 use crate::crypto::digest::{Digest, DigestImpl};
-use crate::msgs::capabilities::{ReqFlags, RspFlags};
-use crate::msgs::digest::DigestBuf;
 use crate::msgs::{
-    encoding::Writer, Algorithms, Certificate, CertificateChain, Digests,
-    GetCertificate, GetDigests, Msg, ReadError, ReadErrorKind, HEADER_SIZE,
+    capabilities::{ReqFlags, RspFlags},
+    common::DigestBuf,
+    encoding::Writer,
+    Algorithms, Certificate, CertificateChain, Digests, GetCertificate,
+    GetDigests, Msg, ReadError, ReadErrorKind, HEADER_SIZE,
 };
 use crate::{reset_on_get_version, Transcript};
 
@@ -121,9 +123,8 @@ impl State {
     ) -> Result<(usize, AllStates), ResponderError> {
         let slot_mask = create_slot_mask(cert_chains);
         let digests = self.hash_cert_chains(cert_chains)?;
-        let digest_size =
-            self.algorithms.base_hash_algo_selected.get_digest_size();
-        let digests = Digests { digest_size, slot_mask, digests };
+
+        let digests = Digests { slot_mask, digests };
         let size = digests.write(rsp)?;
 
         transcript.extend(req)?;
@@ -135,8 +136,10 @@ impl State {
     fn hash_cert_chains<'a>(
         &self,
         cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
-    ) -> Result<[DigestBuf; NUM_SLOTS], ResponderError> {
-        let mut digests = [DigestBuf::default(); NUM_SLOTS];
+    ) -> Result<[Option<DigestBuf>; NUM_SLOTS], ResponderError> {
+        // Avoid requiring DigestBuf to implement Copy
+        const VAL: Option<DigestBuf> = None;
+        let mut digests = [VAL; NUM_SLOTS];
         let mut buf = [0u8; MAX_CERT_CHAIN_SIZE];
         for i in 0..NUM_SLOTS {
             if let Some(cert_chain) = &cert_chains[i] {
@@ -146,8 +149,8 @@ impl State {
                     self.algorithms.base_hash_algo_selected,
                     &buf[..size],
                 );
-                let len = digest.as_ref().len();
-                digests[i].as_mut(len).copy_from_slice(digest.as_ref());
+                digests[i] =
+                    Some(DigestBuf::try_from(digest.as_ref()).unwrap());
             }
         }
         Ok(digests)
