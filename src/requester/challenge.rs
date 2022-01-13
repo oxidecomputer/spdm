@@ -101,16 +101,18 @@ impl State {
         let digest_size = hash_algo.get_digest_size();
         let signature_size =
             self.algorithms.base_asym_algo_selected.get_signature_size();
+
         let rsp = ChallengeAuth::parse_body(
             &buf[HEADER_SIZE..],
             digest_size,
             signature_size,
         )?;
+
         if rsp.slot != self.cert_slot {
             return Err(RequesterError::BadChallengeAuth("incorrect slot"));
         }
         // Provisioned certs don't need retrieval
-        if (rsp.slot != 0x0F) && (rsp.slot_mask != (1 << rsp.slot)) {
+        if (rsp.slot != 0x0F) && ((rsp.slot_mask & (1 << rsp.slot)) == 0) {
             return Err(RequesterError::BadChallengeAuth("slot not in mask"));
         }
 

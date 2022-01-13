@@ -208,8 +208,8 @@ impl ChallengeAuth {
 
         Ok(ChallengeAuth {
             slot,
-            use_mutual_auth,
             slot_mask,
+            use_mutual_auth,
             cert_chain_hash,
             nonce,
             measurement_summary_hash,
