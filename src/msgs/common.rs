@@ -14,7 +14,7 @@ use core::convert::{TryFrom, TryInto};
 /// General opaque data format used in other messages.
 ///
 /// Table 92 From section 14 in SPDM spec version 1.2.0
-#[derive(Default, Debug, Clone, PartialEq)]
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct OpaqueData {
     total_elements: u8,
     elements: [OpaqueElement; config::MAX_OPAQUE_ELEMENTS],
@@ -72,6 +72,8 @@ impl PartialEq for OpaqueElement {
                 == other.data[..other.data_len as usize]
     }
 }
+
+impl Eq for OpaqueElement {}
 
 impl Default for OpaqueElement {
     fn default() -> Self {
@@ -286,7 +288,7 @@ impl DigestBuf {
 impl TryFrom<&[u8]> for DigestBuf {
     type Error = WriteError;
     fn try_from(buf: &[u8]) -> Result<Self, Self::Error> {
-        if buf.len() > 256 {
+        if buf.len() > config::MAX_DIGEST_SIZE {
             return Err(WriteError::new(
                 "DigestBuf",
                 WriteErrorKind::TooLarge {
@@ -318,6 +320,66 @@ impl PartialEq for DigestBuf {
 
 impl Eq for DigestBuf {}
 
+/// A buffer capable of storing signatures of unknown size at compile time.
+#[derive(Debug, Copy, Clone)]
+pub struct SignatureBuf {
+    size: u16,
+    buf: [u8; config::MAX_SIGNATURE_SIZE],
+}
+
+impl SignatureBuf {
+    pub fn new(size: u16) -> SignatureBuf {
+        SignatureBuf { size, buf: [0; config::MAX_SIGNATURE_SIZE] }
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        &self.buf[..self.size as usize]
+    }
+
+    pub fn as_mut(&mut self) -> &mut [u8] {
+        &mut self.buf[..self.size as usize]
+    }
+
+    pub fn len(&self) -> usize {
+        self.size as usize
+    }
+}
+
+impl TryFrom<&[u8]> for SignatureBuf {
+    type Error = WriteError;
+    fn try_from(buf: &[u8]) -> Result<Self, Self::Error> {
+        if buf.len() > config::MAX_SIGNATURE_SIZE {
+            return Err(WriteError::new(
+                "SignatureBuf",
+                WriteErrorKind::TooLarge {
+                    field: "buf.len()",
+                    max_size: 256,
+                    actual_size: buf.len(),
+                },
+            ));
+        }
+        let mut digest = SignatureBuf::new(buf.len() as u16);
+        digest.as_mut().copy_from_slice(buf);
+        Ok(digest)
+    }
+}
+
+impl Default for SignatureBuf {
+    fn default() -> Self {
+        SignatureBuf { size: 0, buf: [0; config::MAX_SIGNATURE_SIZE] }
+    }
+}
+
+// We can't derive PartialEq because buf may only be
+// partially full.
+impl PartialEq for SignatureBuf {
+    fn eq(&self, other: &Self) -> bool {
+        self.size == other.size && self.as_slice() == other.as_slice()
+    }
+}
+
+impl Eq for SignatureBuf {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -325,6 +387,12 @@ mod tests {
     impl DigestBuf {
         pub fn new_with_magic(size: u8, magic: u8) -> DigestBuf {
             DigestBuf { size, buf: [magic; config::MAX_DIGEST_SIZE] }
+        }
+    }
+
+    impl SignatureBuf {
+        pub fn new_with_magic(size: u16, magic: u8) -> SignatureBuf {
+            SignatureBuf { size, buf: [magic; config::MAX_SIGNATURE_SIZE] }
         }
     }
 

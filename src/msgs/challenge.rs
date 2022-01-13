@@ -7,12 +7,12 @@ use core::convert::{TryFrom, TryInto};
 
 use rand::{rngs::OsRng, RngCore};
 
-use super::common::{DigestBuf, OpaqueData};
+use super::common::{DigestBuf, OpaqueData, SignatureBuf};
 use super::encoding::{
     ReadError, ReadErrorKind, Reader, WriteError, WriteErrorKind, Writer,
 };
 use super::Msg;
-use crate::config::{MAX_SIGNATURE_SIZE, NUM_SLOTS};
+use crate::config::NUM_SLOTS;
 
 const MAX_OPAQUE_DATA_SIZE: usize = 1024;
 
@@ -86,7 +86,7 @@ impl Challenge {
 }
 
 /// The responder side of challenge authentication
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChallengeAuth {
     // Set to 0xF if the responder's public key was pre-provisioned on the
     // requester.
@@ -97,27 +97,8 @@ pub struct ChallengeAuth {
     pub nonce: [u8; 32],
     pub measurement_summary_hash: DigestBuf,
     pub opaque_data: OpaqueData,
-    pub signature_size: usize,
-    signature: [u8; MAX_SIGNATURE_SIZE],
+    pub signature: SignatureBuf,
 }
-
-// We can't derive PartialEq because hashes and signature buffers may only be
-// partially full.
-impl PartialEq for ChallengeAuth {
-    fn eq(&self, other: &Self) -> bool {
-        self.slot == other.slot
-            && self.slot_mask == other.slot_mask
-            && self.cert_chain_hash == other.cert_chain_hash
-            && self.nonce == other.nonce
-            && self.measurement_summary_hash == other.measurement_summary_hash
-            && self.opaque_data == other.opaque_data
-            && self.signature_size == other.signature_size
-            && self.signature[..self.signature_size as usize]
-                == other.signature[..other.signature_size as usize]
-    }
-}
-
-impl Eq for ChallengeAuth {}
 
 impl Msg for ChallengeAuth {
     const NAME: &'static str = "CHALLENGE_AUTH";
@@ -137,7 +118,7 @@ impl Msg for ChallengeAuth {
         w.extend(&self.measurement_summary_hash.as_slice())?;
         w.put_u16(self.opaque_data.serialized_size() as u16)?;
         self.opaque_data.write(w)?;
-        w.extend(&self.signature[..self.signature_size as usize])
+        w.extend(&self.signature.as_slice())
     }
 }
 
@@ -175,9 +156,7 @@ impl ChallengeAuth {
     ) -> Result<ChallengeAuth, WriteError> {
         let cert_chain_hash = cert_chain_digest.try_into()?;
         let measurement_summary_hash = measurement_summary_digest.try_into()?;
-        let signature_size = sig.len();
-        let mut signature = [0u8; MAX_SIGNATURE_SIZE];
-        signature[..signature_size].copy_from_slice(sig);
+        let signature = sig.try_into()?;
 
         Ok(ChallengeAuth {
             slot,
@@ -187,17 +166,8 @@ impl ChallengeAuth {
             nonce,
             measurement_summary_hash,
             opaque_data,
-            signature_size,
             signature,
         })
-    }
-
-    /// Return the message transcript signature that the requester must verify.
-    ///
-    /// Due to the variable size of these signatures, we don't allow direct access
-    /// to the underlying array, which may contain junk bytes.
-    pub fn signature(&self) -> &[u8] {
-        &self.signature[..self.signature_size]
     }
 
     /// Deserialize the body of the ChallengeAuth message, given the digest_size
@@ -206,7 +176,7 @@ impl ChallengeAuth {
     pub fn parse_body(
         buf: &[u8],
         digest_size: u8,
-        signature_size: usize,
+        signature_size: u16,
     ) -> Result<ChallengeAuth, ReadError> {
         let mut r = Reader::new(Self::NAME, buf);
         let slot = r.get_bits(4)?;
@@ -233,8 +203,8 @@ impl ChallengeAuth {
         }
         let opaque_data = OpaqueData::read(&mut r)?;
 
-        let mut signature = [0u8; MAX_SIGNATURE_SIZE];
-        r.get_slice(signature_size as usize, &mut signature)?;
+        let mut signature = SignatureBuf::new(signature_size);
+        r.get_slice(signature_size as usize, signature.as_mut())?;
 
         Ok(ChallengeAuth {
             slot,
@@ -244,7 +214,6 @@ impl ChallengeAuth {
             nonce,
             measurement_summary_hash,
             opaque_data,
-            signature_size,
             signature,
         })
     }
@@ -276,8 +245,7 @@ mod tests {
             nonce: [0x13; 32],
             measurement_summary_hash: DigestBuf::new_with_magic(digest_size, 7),
             opaque_data: OpaqueData::default(),
-            signature_size,
-            signature: [1u8; MAX_SIGNATURE_SIZE],
+            signature: SignatureBuf::new_with_magic(signature_size, 1),
         };
 
         let mut buf = [0u8; 256];

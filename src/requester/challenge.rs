@@ -129,14 +129,14 @@ impl State {
 
         // Generate M2 as in the SPDM spec by extending the transcript with the
         // ChallengeAuth response without the signature.
-        let sig_start = buf.len() - signature_size;
+        let sig_start = buf.len() - signature_size as usize;
         transcript.extend(&buf[..sig_start])?;
         let m2_hash = DigestImpl::hash(hash_algo, transcript.get());
 
         self.verify_cert_chain_and_signature(
             digest_size,
             m2_hash.as_ref(),
-            rsp.signature(),
+            rsp.signature.as_slice(),
             root_cert,
             UNIX_TIME,
         )

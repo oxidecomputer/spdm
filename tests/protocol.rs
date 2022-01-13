@@ -86,7 +86,8 @@ fn create_slots<'a>(
     certs: &'a [Certs],
 ) -> [Option<FilledSlot<'a, RingSigner>>; NUM_SLOTS] {
     assert_eq!(certs.len(), NUM_SLOTS);
-    let mut slots = [None; NUM_SLOTS];
+    let mut slots: [Option<FilledSlot<'a, RingSigner>>; NUM_SLOTS] =
+        Default::default();
     for i in 0..NUM_SLOTS {
         if i % 2 == 0 {
             let private_key = &certs[i].leaf_private_der;
@@ -314,8 +315,6 @@ fn challenge_auth<'a, S: Signer>(
 
     // The rest of the states have not yet been implemented, so we don't transition
     // here.
-    //
-    // This will change to "Measurement" when that state is implemented.
     assert_eq!("Challenge", responder.state().name());
 
     // Deliver the response to the requester
@@ -329,7 +328,7 @@ fn challenge_auth<'a, S: Signer>(
 fn assert_digests_match_cert_chains<'a, S: Signer>(
     hash_algo: BaseHashAlgo,
     slots: &[Option<FilledSlot<'a, S>>; NUM_SLOTS],
-    digests: &Digests<NUM_SLOTS>,
+    digests: &Digests,
 ) {
     for (i, (slot, digest)) in slots.iter().zip(digests.digests).enumerate() {
         // Is there a digest for the given slot
@@ -338,8 +337,7 @@ fn assert_digests_match_cert_chains<'a, S: Signer>(
             let mut w = Writer::new("CERTIFICATE_CHAIN", &mut buf);
             let size = slot.as_ref().unwrap().cert_chain.write(&mut w).unwrap();
             let expected = DigestImpl::hash(hash_algo, &buf[..size]);
-            let len = expected.as_ref().len();
-            assert_eq!(digest.as_slice(len), expected.as_ref());
+            assert_eq!(digest.as_slice(), expected.as_ref());
         } else {
             assert!(slot.is_none());
         }
