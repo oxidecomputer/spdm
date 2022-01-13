@@ -199,6 +199,7 @@ pub enum ContentChanged {
     False,
 }
 
+// Bit 7 of byte 0 (DMTFSpecMeasurementValueType) in Table 45 of DMTF 1.2.0 spec
 #[repr(u8)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum DmtfMeasurementValueRepresentation {
@@ -206,6 +207,8 @@ pub enum DmtfMeasurementValueRepresentation {
     RawBitStream = 0x80,
 }
 
+// Bits 6:0 of byte 0 (DMTFSpecMeasurementValueType) in Table 45 of DMTF 1.2.0
+// spec
 #[repr(u8)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum DmtfMeasurementValueType {
@@ -218,6 +221,10 @@ pub enum DmtfMeasurementValueType {
     MutableFirmwareVersion = 0x06,
     MutableFirmwareSecurityVersion = 0x07,
 }
+
+// Bytes 3+ (DMTFSpecMeasurementValue) in Table 45 of DMTF 1.2.0 spec
+#[derive(Debug, Clone, PartialEq)]
+pub enum DmtfMeasurementValue {}
 
 bitflags! {
     /// Fields 0 and 1 of DeviceMode
@@ -253,11 +260,14 @@ pub struct DeviceMode {
     pub device_mode_state: DeviceModeActive,
 }
 
-/// The DMTF measurement specification from table 45 of section 10.11.1.1 of the
-/// DMTF 1.2.0a spec.
+/// Table 45 of DMTF 1.2.0 spec
 #[derive(Debug, Clone, PartialEq)]
-pub struct DmtfMeasurement {}
+pub struct DmtfMeasurement {
+    value_representation: DmtfMeasurementValueRepresentation,
+    value_type: DmtfMeasurementValueType,
+}
 
+/// Table 44 of DMTF 1.2.0 spec
 #[derive(Debug, Clone, PartialEq)]
 pub struct MeasurementBlock {
     pub index: u8,

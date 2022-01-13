@@ -258,6 +258,47 @@ impl VendorRegistryId {
     }
 }
 
+/// An buffer capable of storing digests of unknown size at compile time.
+#[derive(Debug, Copy, Clone)]
+pub struct DigestBuf {
+    size: u8,
+    buf: [u8; config::MAX_DIGEST_SIZE],
+}
+
+impl DigestBuf {
+    pub fn new(size: u8) -> DigestBuf {
+        DigestBuf { size, buf: [0; config::MAX_DIGEST_SIZE] }
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        &self.buf[..self.size as usize]
+    }
+
+    pub fn as_mut(&mut self) -> &mut [u8] {
+        &mut self.buf[..self.size as usize]
+    }
+
+    pub fn len(&self) -> usize {
+        self.size as usize
+    }
+}
+
+impl Default for DigestBuf {
+    fn default() -> Self {
+        DigestBuf { size: 0, buf: [0; config::MAX_DIGEST_SIZE] }
+    }
+}
+
+// We can't derive PartialEq because buf may only be
+// partially full.
+impl PartialEq for DigestBuf {
+    fn eq(&self, other: &Self) -> bool {
+        self.size == other.size && self.as_slice() == other.as_slice()
+    }
+}
+
+impl Eq for DigestBuf {}
+
 #[cfg(test)]
 mod tests {
     use super::*;

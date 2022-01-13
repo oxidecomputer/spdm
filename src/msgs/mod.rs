@@ -17,7 +17,7 @@ pub mod algorithms;
 pub mod capabilities;
 pub mod certificates;
 pub mod challenge;
-mod common;
+pub mod common;
 pub mod digest;
 pub mod encoding;
 mod error;
