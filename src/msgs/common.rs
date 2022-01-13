@@ -283,6 +283,25 @@ impl DigestBuf {
     }
 }
 
+impl TryFrom<&[u8]> for DigestBuf {
+    type Error = WriteError;
+    fn try_from(buf: &[u8]) -> Result<Self, Self::Error> {
+        if buf.len() > 256 {
+            return Err(WriteError::new(
+                "DigestBuf",
+                WriteErrorKind::TooLarge {
+                    field: "buf.len()",
+                    max_size: 256,
+                    actual_size: buf.len(),
+                },
+            ));
+        }
+        let mut digest = DigestBuf::new(buf.len() as u8);
+        digest.as_mut().copy_from_slice(buf);
+        Ok(digest)
+    }
+}
+
 impl Default for DigestBuf {
     fn default() -> Self {
         DigestBuf { size: 0, buf: [0; config::MAX_DIGEST_SIZE] }
@@ -302,6 +321,12 @@ impl Eq for DigestBuf {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    impl DigestBuf {
+        pub fn new_with_magic(size: u8, magic: u8) -> DigestBuf {
+            DigestBuf { size, buf: [magic; config::MAX_DIGEST_SIZE] }
+        }
+    }
 
     #[test]
     fn roundtrip_opaque_data() {

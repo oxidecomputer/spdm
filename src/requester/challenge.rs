@@ -107,11 +107,11 @@ impl State {
             signature_size,
         )?;
         if rsp.slot != self.cert_slot {
-            return Err(RequesterError::BadChallengeAuth);
+            return Err(RequesterError::BadChallengeAuth("incorrect slot"));
         }
         // Provisioned certs don't need retrieval
         if (rsp.slot != 0x0F) && (rsp.slot_mask != (1 << rsp.slot)) {
-            return Err(RequesterError::BadChallengeAuth);
+            return Err(RequesterError::BadChallengeAuth("slot not in mask"));
         }
 
         // TODO: Handle pre-provisioned certs
@@ -120,8 +120,8 @@ impl State {
             &self.cert_chain[..self.cert_chain_size as usize],
         );
 
-        if rsp.cert_chain_hash() != digest.as_ref() {
-            return Err(RequesterError::BadChallengeAuth);
+        if rsp.cert_chain_hash.as_slice() != digest.as_ref() {
+            return Err(RequesterError::BadChallengeAuth("digest mismatch"));
         }
 
         // TODO: Do something with returned measurements
@@ -167,7 +167,7 @@ impl State {
             m2_hash,
             signature,
         ) {
-            return Err(RequesterError::BadChallengeAuth);
+            return Err(RequesterError::BadChallengeAuth("bad signature"));
         }
 
         Ok(Transition::Placeholder)

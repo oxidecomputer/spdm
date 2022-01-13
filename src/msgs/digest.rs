@@ -113,23 +113,17 @@ impl Digests {
 mod tests {
     use super::super::HEADER_SIZE;
     use super::*;
-    use crate::config::MAX_DIGEST_SIZE;
 
     fn test_digest(size: u8, magic: u8) -> DigestBuf {
-        DigestBuf { size, buf: [magic; MAX_DIGEST_SIZE] }
+        DigestBuf::new_with_magic(size, magic)
     }
 
-    fn test_digests(size: u8) -> [DigestBuf; 8] {
-        [
-            test_digest(size, 0),
-            test_digest(size, 1),
-            test_digest(size, 2),
-            test_digest(size, 3),
-            test_digest(size, 4),
-            test_digest(size, 5),
-            test_digest(size, 6),
-            test_digest(size, 7),
-        ]
+    fn test_digests(size: u8) -> [DigestBuf; NUM_SLOTS] {
+        let mut digests = [DigestBuf::new(size); NUM_SLOTS];
+        for i in 0..NUM_SLOTS {
+            digests[i] = test_digest(size, i as u8);
+        }
+        digests
     }
 
     #[test]
@@ -170,7 +164,7 @@ mod tests {
     #[test]
     fn round_trip_digest_32_0x5_mask() {
         let digest_size = 32;
-        let mut digests = [DigestBuf::default(); 8];
+        let mut digests = [DigestBuf::new(digest_size); NUM_SLOTS];
         digests[0] = test_digest(digest_size, 0);
         digests[2] = test_digest(digest_size, 2);
         let d = Digests {
@@ -188,7 +182,7 @@ mod tests {
     #[test]
     fn round_trip_digest_32_0x16_mask() {
         let digest_size = 32;
-        let mut digests = [DigestBuf::default(); 8];
+        let mut digests = [DigestBuf::new(digest_size); NUM_SLOTS];
         digests[1] = test_digest(digest_size, 1);
         digests[2] = test_digest(digest_size, 2);
         digests[4] = test_digest(digest_size, 2);
@@ -217,8 +211,8 @@ mod tests {
     #[test]
     fn round_trip_digest_48_0x2_mask() {
         let digest_size = 48;
-        let mut digests = [DigestBuf::new(digest_size); 8];
-        digests[1] = DigestBuf { size: digest_size, buf: [2; MAX_DIGEST_SIZE] };
+        let mut digests = [DigestBuf::new(digest_size); NUM_SLOTS];
+        digests[1] = test_digest(digest_size, 2);
         let d = Digests { slot_mask: 0x2, digests };
 
         let mut buf = [0u8; 52];

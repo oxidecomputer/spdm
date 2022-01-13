@@ -4,7 +4,7 @@
 
 use core::cmp::PartialEq;
 
-use crate::config::MAX_CERT_CHAIN_DEPTH;
+use crate::config::{MAX_CERT_CHAIN_DEPTH, MAX_CERT_CHAIN_SIZE};
 
 use super::encoding::{
     ReadError, ReadErrorKind, Reader, WriteError, WriteErrorKind, Writer,
@@ -52,20 +52,15 @@ impl GetCertificate {
 }
 
 /// A CERTIFICATE message sent by a responder
-///
-/// While the max size of a cert chain is 0xFFFF bytes, most cert chains in
-/// practical use are much smaller. On memory constrained systems, to avoid
-/// allocating the absolute max size, we instead limit the max size via the
-/// const parameter: `N`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Certificate<const N: usize> {
+pub struct Certificate {
     pub slot: u8,
     pub portion_length: u16,
     pub remainder_length: u16,
-    pub cert_chain: [u8; N],
+    pub cert_chain: [u8; MAX_CERT_CHAIN_SIZE],
 }
 
-impl<const N: usize> Msg for Certificate<N> {
+impl Msg for Certificate {
     const NAME: &'static str = "CERTIFICATE";
 
     const SPDM_VERSION: u8 = 0x11;
@@ -81,20 +76,20 @@ impl<const N: usize> Msg for Certificate<N> {
     }
 }
 
-impl<const N: usize> Certificate<N> {
-    pub fn parse_body(buf: &[u8]) -> Result<Certificate<N>, ReadError> {
+impl Certificate {
+    pub fn parse_body(buf: &[u8]) -> Result<Certificate, ReadError> {
         let mut r = Reader::new(Self::NAME, buf);
         let slot = r.get_byte()?;
         r.skip_reserved(1)?;
         let portion_length = r.get_u16()?;
-        if portion_length as usize > N {
+        if portion_length as usize > MAX_CERT_CHAIN_SIZE {
             return Err(ReadError::new(
                 Self::NAME,
                 ReadErrorKind::ImplementationLimitReached,
             ));
         }
         let remainder_length = r.get_u16()?;
-        let mut cert_chain = [0u8; N];
+        let mut cert_chain = [0u8; MAX_CERT_CHAIN_SIZE];
         r.get_slice(portion_length as usize, &mut cert_chain)?;
 
         Ok(Certificate { slot, portion_length, remainder_length, cert_chain })
@@ -109,7 +104,7 @@ impl<const N: usize> Certificate<N> {
 ///
 /// This corresponds to the "Certificate chain format" table in section 10.6.1
 /// of version 1.1.1 of the SPDM spec
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct CertificateChain<'a> {
     pub root_hash: &'a [u8],
     pub leaf_cert: &'a [u8],
@@ -329,11 +324,12 @@ mod tests {
             slot: 0,
             portion_length: 800,
             remainder_length: 0,
-            cert_chain: [0u8; 0xFFFF],
+            cert_chain: [0u8; MAX_CERT_CHAIN_SIZE],
         };
         // Ensure the remaining bytes are 0s, since they aren't part of the
         // simulated data.
-        msg.cert_chain[800..].copy_from_slice(&[0u8; 0xFFFF - 800]);
+        msg.cert_chain[800..]
+            .copy_from_slice(&[0u8; MAX_CERT_CHAIN_SIZE - 800]);
 
         let mut buf = [0u8; 1200];
         let _ = msg.write(&mut buf).unwrap();

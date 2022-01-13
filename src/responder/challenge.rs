@@ -106,7 +106,7 @@ impl State {
             &measurement_summary_hash[..digest_size as usize],
             OpaqueData::default(),
             &dummy_sig[..signature_size],
-        );
+        )?;
 
         let size = auth.write(rsp)?;
 

@@ -40,7 +40,7 @@ pub struct State {
     // key of the responder was provisioned in a trusted environment or if
     // CAP_PSK is enabled.
     pub digests: Option<Digests>,
-    pub cert_chain: Option<Certificate<MAX_CERT_CHAIN_SIZE>>,
+    pub cert_chain: Option<Certificate>,
 }
 
 impl From<algorithms::State> for State {
@@ -121,7 +121,7 @@ impl State {
         buf: &[u8],
         transcript: &mut Transcript,
     ) -> Result<challenge::State, RequesterError> {
-        expect::<Certificate<MAX_CERT_CHAIN_SIZE>>(buf)?;
+        expect::<Certificate>(buf)?;
         let cert = Certificate::parse_body(&buf[HEADER_SIZE..])?;
         self.cert_chain = Some(cert);
         transcript.extend(buf)?;
