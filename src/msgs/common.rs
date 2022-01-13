@@ -304,12 +304,6 @@ impl TryFrom<&[u8]> for DigestBuf {
     }
 }
 
-impl Default for DigestBuf {
-    fn default() -> Self {
-        DigestBuf { size: 0, buf: [0; config::MAX_DIGEST_SIZE] }
-    }
-}
-
 // We can't derive PartialEq because buf may only be
 // partially full.
 impl PartialEq for DigestBuf {
@@ -361,12 +355,6 @@ impl TryFrom<&[u8]> for SignatureBuf {
         let mut digest = SignatureBuf::new(buf.len() as u16);
         digest.as_mut().copy_from_slice(buf);
         Ok(digest)
-    }
-}
-
-impl Default for SignatureBuf {
-    fn default() -> Self {
-        SignatureBuf { size: 0, buf: [0; config::MAX_SIGNATURE_SIZE] }
     }
 }
 
