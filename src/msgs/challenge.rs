@@ -173,14 +173,9 @@ impl ChallengeAuth {
         let use_mutual_auth = r.get_bit()? == 1;
         let slot_mask = r.get_byte()?;
 
-        let mut cert_chain_hash = DigestBuf::new(digest_size);
-        r.get_slice(digest_size as usize, cert_chain_hash.as_mut())?;
-
+        let cert_chain_hash = DigestBuf::read(digest_size, &mut r)?;
         let nonce = Nonce::read(&mut r)?;
-
-        let mut measurement_summary_hash = DigestBuf::new(digest_size);
-        r.get_slice(digest_size as usize, measurement_summary_hash.as_mut())?;
-
+        let measurement_summary_hash = DigestBuf::read(digest_size, &mut r)?;
         let opaque_data_len = r.get_u16()?;
 
         if opaque_data_len as usize > MAX_OPAQUE_DATA_SIZE {
@@ -190,9 +185,7 @@ impl ChallengeAuth {
             ));
         }
         let opaque_data = OpaqueData::read(&mut r)?;
-
-        let mut signature = SignatureBuf::new(signature_size);
-        r.get_slice(signature_size as usize, signature.as_mut())?;
+        let signature = SignatureBuf::read(signature_size, &mut r)?;
 
         Ok(ChallengeAuth {
             slot,

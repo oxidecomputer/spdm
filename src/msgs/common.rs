@@ -273,6 +273,12 @@ impl DigestBuf {
         DigestBuf { size, buf: [0; config::MAX_DIGEST_SIZE] }
     }
 
+    pub fn read(size: u8, r: &mut Reader) -> Result<DigestBuf, ReadError> {
+        let mut digest = DigestBuf::new(size);
+        r.get_slice(size as usize, digest.as_mut())?;
+        Ok(digest)
+    }
+
     pub fn len(&self) -> usize {
         self.size as usize
     }
@@ -329,6 +335,12 @@ pub struct SignatureBuf {
 impl SignatureBuf {
     pub fn new(size: u16) -> SignatureBuf {
         SignatureBuf { size, buf: [0; config::MAX_SIGNATURE_SIZE] }
+    }
+
+    pub fn read(size: u16, r: &mut Reader) -> Result<SignatureBuf, ReadError> {
+        let mut sig = SignatureBuf::new(size);
+        r.get_slice(size as usize, sig.as_mut())?;
+        Ok(sig)
     }
 
     pub fn len(&self) -> usize {
