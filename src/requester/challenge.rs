@@ -31,6 +31,9 @@ use crate::Transcript;
 // December 1, 2021 00:00:00 GMT
 const UNIX_TIME: u64 = 1638316800;
 
+// A provisioned certificate does not need to be retrieved
+const PROVISIONED_MASK: u8 = 0x0F;
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Transition {
     Placeholder,
@@ -111,8 +114,11 @@ impl State {
         if rsp.slot != self.cert_slot {
             return Err(RequesterError::BadChallengeAuth("incorrect slot"));
         }
-        // Provisioned certs don't need retrieval
-        if (rsp.slot != 0x0F) && ((rsp.slot_mask & (1 << rsp.slot)) == 0) {
+
+        // A cert is not provisioned and it's not included in the slot mask
+        if (rsp.slot != PROVISIONED_MASK)
+            && ((rsp.slot_mask & (1 << rsp.slot)) == 0)
+        {
             return Err(RequesterError::BadChallengeAuth("slot not in mask"));
         }
 
