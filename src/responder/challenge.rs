@@ -102,9 +102,9 @@ impl State {
             use_mutual_auth,
             cert_chain_digest.as_ref(),
             Nonce::new(),
-            measurement_summary_hash.as_slice(),
+            measurement_summary_hash.as_ref(),
             OpaqueData::default(),
-            dummy_sig.as_slice(),
+            dummy_sig.as_ref(),
         )?;
 
         let size = auth.write(rsp)?;

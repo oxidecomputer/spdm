@@ -129,7 +129,7 @@ impl State {
             &self.cert_chain[..self.cert_chain_size as usize],
         );
 
-        if rsp.cert_chain_hash.as_slice() != digest.as_ref() {
+        if rsp.cert_chain_hash.as_ref() != digest.as_ref() {
             return Err(RequesterError::BadChallengeAuth("digest mismatch"));
         }
 
@@ -145,7 +145,7 @@ impl State {
         self.verify_cert_chain_and_signature(
             digest_size,
             m2_hash.as_ref(),
-            rsp.signature.as_slice(),
+            rsp.signature.as_ref(),
             root_cert,
             UNIX_TIME,
         )

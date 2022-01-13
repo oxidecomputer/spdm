@@ -273,16 +273,20 @@ impl DigestBuf {
         DigestBuf { size, buf: [0; config::MAX_DIGEST_SIZE] }
     }
 
-    pub fn as_slice(&self) -> &[u8] {
-        &self.buf[..self.size as usize]
-    }
-
-    pub fn as_mut(&mut self) -> &mut [u8] {
-        &mut self.buf[..self.size as usize]
-    }
-
     pub fn len(&self) -> usize {
         self.size as usize
+    }
+}
+
+impl AsRef<[u8]> for DigestBuf {
+    fn as_ref(&self) -> &[u8] {
+        &self.buf[..self.size as usize]
+    }
+}
+
+impl AsMut<[u8]> for DigestBuf {
+    fn as_mut(&mut self) -> &mut [u8] {
+        &mut self.buf[..self.size as usize]
     }
 }
 
@@ -309,7 +313,7 @@ impl TryFrom<&[u8]> for DigestBuf {
 // partially full.
 impl PartialEq for DigestBuf {
     fn eq(&self, other: &Self) -> bool {
-        self.size == other.size && self.as_slice() == other.as_slice()
+        self.size == other.size && self.as_ref() == other.as_ref()
     }
 }
 
@@ -327,16 +331,20 @@ impl SignatureBuf {
         SignatureBuf { size, buf: [0; config::MAX_SIGNATURE_SIZE] }
     }
 
-    pub fn as_slice(&self) -> &[u8] {
-        &self.buf[..self.size as usize]
-    }
-
-    pub fn as_mut(&mut self) -> &mut [u8] {
-        &mut self.buf[..self.size as usize]
-    }
-
     pub fn len(&self) -> usize {
         self.size as usize
+    }
+}
+
+impl AsRef<[u8]> for SignatureBuf {
+    fn as_ref(&self) -> &[u8] {
+        &self.buf[..self.size as usize]
+    }
+}
+
+impl AsMut<[u8]> for SignatureBuf {
+    fn as_mut(&mut self) -> &mut [u8] {
+        &mut self.buf[..self.size as usize]
     }
 }
 
@@ -363,7 +371,7 @@ impl TryFrom<&[u8]> for SignatureBuf {
 // partially full.
 impl PartialEq for SignatureBuf {
     fn eq(&self, other: &Self) -> bool {
-        self.size == other.size && self.as_slice() == other.as_slice()
+        self.size == other.size && self.as_ref() == other.as_ref()
     }
 }
 

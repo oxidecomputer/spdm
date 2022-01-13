@@ -101,7 +101,7 @@ impl Digests {
         let mut offset = w.offset();
         let mut k = bits.trailing_zeros() as usize;
         while k < NUM_SLOTS {
-            offset = w.extend(self.digests[k].as_slice())?;
+            offset = w.extend(self.digests[k].as_ref())?;
             bits ^= 1 << k;
             k = bits.trailing_zeros() as usize;
         }
@@ -139,8 +139,8 @@ mod tests {
         assert_eq!(buf[3], 0x5);
         // Bits 0 and 2 are set in the slot mask, and the appropriate digests
         // are written out.
-        assert_eq!(&buf[4..36], test_digest(digest_size, 0).as_slice());
-        assert_eq!(&buf[36..68], test_digest(digest_size, 2).as_slice());
+        assert_eq!(&buf[4..36], test_digest(digest_size, 0).as_ref());
+        assert_eq!(&buf[36..68], test_digest(digest_size, 2).as_ref());
     }
 
     #[test]
@@ -156,9 +156,9 @@ mod tests {
         assert_eq!(buf[3], 0x16);
         // Bits 1,2,4 are set in the slot mask, and the appropriate digests
         // are written out.
-        assert_eq!(&buf[4..36], test_digest(digest_size, 1).as_slice());
-        assert_eq!(&buf[36..68], test_digest(digest_size, 2).as_slice());
-        assert_eq!(&buf[68..100], test_digest(digest_size, 4).as_slice());
+        assert_eq!(&buf[4..36], test_digest(digest_size, 1).as_ref());
+        assert_eq!(&buf[36..68], test_digest(digest_size, 2).as_ref());
+        assert_eq!(&buf[68..100], test_digest(digest_size, 4).as_ref());
     }
 
     #[test]

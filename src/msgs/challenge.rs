@@ -102,12 +102,12 @@ impl Msg for ChallengeAuth {
             w.put(self.slot)?;
         }
         w.put(self.slot_mask)?;
-        w.extend(&self.cert_chain_hash.as_slice())?;
+        w.extend(&self.cert_chain_hash.as_ref())?;
         w.extend(&self.nonce.as_ref())?;
-        w.extend(&self.measurement_summary_hash.as_slice())?;
+        w.extend(&self.measurement_summary_hash.as_ref())?;
         w.put_u16(self.opaque_data.serialized_size() as u16)?;
         self.opaque_data.write(w)?;
-        w.extend(&self.signature.as_slice())
+        w.extend(&self.signature.as_ref())
     }
 }
 
