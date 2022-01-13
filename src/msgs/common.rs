@@ -10,6 +10,7 @@ use super::{
 use crate::config;
 
 use core::convert::{TryFrom, TryInto};
+use rand::{rngs::OsRng, RngCore};
 
 /// General opaque data format used in other messages.
 ///
@@ -368,10 +369,42 @@ impl PartialEq for SignatureBuf {
 
 impl Eq for SignatureBuf {}
 
+/// A unique random value used for cryptographic purposes
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Nonce([u8; 32]);
+
+impl Nonce {
+    pub fn new() -> Nonce {
+        let mut nonce = [0u8; 32];
+        OsRng.fill_bytes(&mut nonce);
+        Nonce(nonce)
+    }
+
+    pub fn read(r: &mut Reader) -> Result<Nonce, ReadError> {
+        let mut nonce = [0u8; 32];
+        r.get_slice(32, &mut nonce)?;
+        Ok(Nonce(nonce))
+    }
+}
+
+impl AsRef<[u8]> for Nonce {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl AsMut<[u8]> for Nonce {
+    fn as_mut(&mut self) -> &mut [u8] {
+        &mut self.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// The `new_with_magic` methods are useful for manually parsing serialized
+    /// buffers and are available for testing only.
     impl DigestBuf {
         pub fn new_with_magic(size: u8, magic: u8) -> DigestBuf {
             DigestBuf { size, buf: [magic; config::MAX_DIGEST_SIZE] }
@@ -381,6 +414,12 @@ mod tests {
     impl SignatureBuf {
         pub fn new_with_magic(size: u16, magic: u8) -> SignatureBuf {
             SignatureBuf { size, buf: [magic; config::MAX_SIGNATURE_SIZE] }
+        }
+    }
+
+    impl Nonce {
+        pub fn new_with_magic(magic: u8) -> Nonce {
+            Nonce([magic; 32])
         }
     }
 

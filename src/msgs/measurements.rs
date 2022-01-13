@@ -3,8 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use super::algorithms::MeasurementSpec;
-use super::challenge;
-use super::common::OpaqueData;
+use super::common::{Nonce, OpaqueData};
 use super::encoding::{
     ReadError, ReadErrorKind, Reader, WriteError, WriteErrorKind, Writer,
 };
@@ -110,7 +109,7 @@ pub struct GetMeasurements {
     index: MeasurementIndex,
 
     // Only valid if signature_requested attribute is set
-    nonce: Option<[u8; 32]>,
+    nonce: Option<Nonce>,
 
     // Slot number of the responder certificate chain used for measurement auth
     // Only present on the wire if signature_requested attribute is set.
@@ -131,7 +130,7 @@ impl GetMeasurements {
         }
         let mut nonce = None;
         if attributes.signature_requested {
-            nonce = Some(challenge::nonce());
+            nonce = Some(Nonce::new());
         }
         Ok(GetMeasurements { attributes, index, slot_id, nonce })
     }
@@ -146,7 +145,7 @@ impl Msg for GetMeasurements {
         w.put((&self.attributes).into())?;
         w.put((&self.index).try_into()?)?;
         if self.attributes.signature_requested {
-            w.extend(&self.nonce.unwrap())?;
+            w.extend(&self.nonce.unwrap().as_ref())?;
             w.put(self.slot_id)?;
         }
         Ok(w.offset())
@@ -173,8 +172,7 @@ impl GetMeasurements {
         let mut nonce = None;
         let mut slot_id = 0;
         if attributes.signature_requested {
-            nonce = Some([0u8; 32]);
-            r.get_slice(32, nonce.as_mut().unwrap())?;
+            nonce = Some(Nonce::read(&mut r)?);
             slot_id = r.get_byte()?;
             if (slot_id as usize) >= config::NUM_SLOTS {
                 return Err(ReadError::new(

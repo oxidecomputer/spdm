@@ -13,8 +13,7 @@ use crate::crypto::{
 };
 use crate::msgs::{
     capabilities::{ReqFlags, RspFlags},
-    challenge::nonce,
-    common::{DigestBuf, SignatureBuf},
+    common::{DigestBuf, Nonce, SignatureBuf},
     encoding::Writer,
     Algorithms, Challenge, ChallengeAuth, Msg, OpaqueData, HEADER_SIZE,
 };
@@ -102,7 +101,7 @@ impl State {
             id_auth::create_slot_mask(slots),
             use_mutual_auth,
             cert_chain_digest.as_ref(),
-            nonce(),
+            Nonce::new(),
             measurement_summary_hash.as_slice(),
             OpaqueData::default(),
             dummy_sig.as_slice(),

@@ -10,8 +10,9 @@ use crate::crypto::{
     digest::{Digest, DigestImpl},
     pki::{new_end_entity_cert, EndEntityCert},
 };
-use crate::msgs::capabilities::{ReqFlags, RspFlags};
 use crate::msgs::{
+    capabilities::{ReqFlags, RspFlags},
+    common::Nonce,
     Algorithms, CertificateChain, Challenge, ChallengeAuth,
     MeasurementHashType, Msg, VersionEntry, HEADER_SIZE,
 };
@@ -52,7 +53,7 @@ pub struct State {
     pub cert_slot: u8,
     pub cert_chain: [u8; MAX_CERT_CHAIN_SIZE],
     pub cert_chain_size: u16,
-    pub nonce: [u8; 32],
+    pub nonce: Option<Nonce>,
 }
 
 impl From<id_auth::State> for State {
@@ -67,7 +68,7 @@ impl From<id_auth::State> for State {
             cert_slot: s.cert_chain.as_ref().unwrap().slot,
             cert_chain: s.cert_chain.as_ref().unwrap().cert_chain,
             cert_chain_size: s.cert_chain.unwrap().portion_length,
-            nonce: [0u8; 32],
+            nonce: None,
         }
     }
 }
@@ -83,7 +84,7 @@ impl State {
         // Is there also a need to retrieve them during challenge-response?
         let measurement_hash_type = MeasurementHashType::None;
         let challenge = Challenge::new(self.cert_slot, measurement_hash_type);
-        self.nonce = challenge.nonce;
+        self.nonce = Some(challenge.nonce);
         let size = challenge.write(buf).map_err(|e| RequesterError::from(e))?;
         transcript.extend(&buf[..size])?;
         Ok(&buf[..size])

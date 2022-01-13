@@ -5,9 +5,7 @@
 use core::cmp::PartialEq;
 use core::convert::{TryFrom, TryInto};
 
-use rand::{rngs::OsRng, RngCore};
-
-use super::common::{DigestBuf, OpaqueData, SignatureBuf};
+use super::common::{DigestBuf, Nonce, OpaqueData, SignatureBuf};
 use super::encoding::{
     ReadError, ReadErrorKind, Reader, WriteError, WriteErrorKind, Writer,
 };
@@ -40,25 +38,17 @@ impl TryFrom<u8> for MeasurementHashType {
     }
 }
 
-/// Generate a 32 byte nonce
-pub fn nonce() -> [u8; 32] {
-    let mut nonce = [0u8; 32];
-    OsRng.fill_bytes(&mut nonce);
-    nonce
-}
-
 /// The requester side of challenge authentication
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Challenge {
     pub slot: u8,
     pub measurement_hash_type: MeasurementHashType,
-    pub nonce: [u8; 32],
+    pub nonce: Nonce,
 }
 
 impl Challenge {
     pub fn new(slot: u8, measurement_hash_type: MeasurementHashType) -> Self {
-        let nonce = nonce();
-        Challenge { slot, measurement_hash_type, nonce }
+        Challenge { slot, measurement_hash_type, nonce: Nonce::new() }
     }
 }
 
@@ -70,7 +60,7 @@ impl Msg for Challenge {
     fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
         w.put(self.slot)?;
         w.put(self.measurement_hash_type as u8)?;
-        w.extend(&self.nonce)
+        w.extend(&self.nonce.as_ref())
     }
 }
 
@@ -79,8 +69,7 @@ impl Challenge {
         let mut r = Reader::new(Self::NAME, buf);
         let slot = r.get_byte()?;
         let measurement_hash_type = r.get_byte()?.try_into()?;
-        let mut nonce = [0u8; 32];
-        r.get_slice(32, &mut nonce)?;
+        let nonce = Nonce::read(&mut r)?;
         Ok(Challenge { slot, measurement_hash_type, nonce })
     }
 }
@@ -94,7 +83,7 @@ pub struct ChallengeAuth {
     pub slot_mask: u8,
     pub use_mutual_auth: bool,
     pub cert_chain_hash: DigestBuf,
-    pub nonce: [u8; 32],
+    pub nonce: Nonce,
     pub measurement_summary_hash: DigestBuf,
     pub opaque_data: OpaqueData,
     pub signature: SignatureBuf,
@@ -114,7 +103,7 @@ impl Msg for ChallengeAuth {
         }
         w.put(self.slot_mask)?;
         w.extend(&self.cert_chain_hash.as_slice())?;
-        w.extend(&self.nonce)?;
+        w.extend(&self.nonce.as_ref())?;
         w.extend(&self.measurement_summary_hash.as_slice())?;
         w.put_u16(self.opaque_data.serialized_size() as u16)?;
         self.opaque_data.write(w)?;
@@ -149,7 +138,7 @@ impl ChallengeAuth {
         slot_mask: u8,
         use_mutual_auth: bool,
         cert_chain_digest: &[u8],
-        nonce: [u8; 32],
+        nonce: Nonce,
         measurement_summary_digest: &[u8],
         opaque_data: OpaqueData,
         sig: &[u8],
@@ -187,8 +176,7 @@ impl ChallengeAuth {
         let mut cert_chain_hash = DigestBuf::new(digest_size);
         r.get_slice(digest_size as usize, cert_chain_hash.as_mut())?;
 
-        let mut nonce = [0u8; 32];
-        r.get_slice(32, &mut nonce)?;
+        let nonce = Nonce::read(&mut r)?;
 
         let mut measurement_summary_hash = DigestBuf::new(digest_size);
         r.get_slice(digest_size as usize, measurement_summary_hash.as_mut())?;
@@ -242,7 +230,7 @@ mod tests {
             use_mutual_auth: false,
             slot_mask: 0x1,
             cert_chain_hash: DigestBuf::new_with_magic(digest_size, 9),
-            nonce: [0x13; 32],
+            nonce: Nonce::new_with_magic(13),
             measurement_summary_hash: DigestBuf::new_with_magic(digest_size, 7),
             opaque_data: OpaqueData::default(),
             signature: SignatureBuf::new_with_magic(signature_size, 1),
