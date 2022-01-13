@@ -22,8 +22,8 @@ use crate::Transcript;
 // need *some* valid time. Furthermore, during early boot we will not have
 // access to a trusted source of time.
 //
-// An alternative would be to disable the time checck in a patched version of
-//  WebPKI.
+// An alternative would be to disable the time check in a patched version of
+// WebPKI.
 //
 // This may not work for all consumers of this library.
 // Tracked in https://github.com/oxidecomputer/spdm/issues/31
