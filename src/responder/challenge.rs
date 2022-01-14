@@ -83,7 +83,8 @@ impl State {
                 && self.responder_cap.contains(RspFlags::MUT_AUTH_CAP);
 
         // TODO: Actually return measurement hashes if requested
-        let measurement_summary_hash = DigestBuf::new(digest_size);
+        let mut measurement_summary_hash = DigestBuf::new();
+        measurement_summary_hash.resize(digest_size as usize, 0).unwrap();
 
         transcript.extend(req)?;
 
@@ -94,7 +95,8 @@ impl State {
         // signature, serialize, extend the transcript, construct the real
         // signature, and overwrite the dummy signature in the serialized
         // message.
-        let dummy_sig = SignatureBuf::new(signature_size);
+        let mut dummy_sig = SignatureBuf::new();
+        dummy_sig.resize(signature_size as usize, 0).unwrap();
 
         let auth = ChallengeAuth::new(
             req_msg.slot,
@@ -105,7 +107,7 @@ impl State {
             measurement_summary_hash.as_ref(),
             OpaqueData::default(),
             dummy_sig.as_ref(),
-        )?;
+        );
 
         let size = auth.write(rsp)?;
 

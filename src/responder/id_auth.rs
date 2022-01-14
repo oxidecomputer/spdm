@@ -136,9 +136,9 @@ impl State {
         &self,
         cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
     ) -> Result<[DigestBuf; NUM_SLOTS], ResponderError> {
-        let digest_size =
-            self.algorithms.base_hash_algo_selected.get_digest_size();
-        let mut digests = [DigestBuf::new(digest_size); NUM_SLOTS];
+        // Avoid requiring DigestBuf to implement Copy
+        const VAL: DigestBuf = DigestBuf::new();
+        let mut digests = [VAL; NUM_SLOTS];
         let mut buf = [0u8; MAX_CERT_CHAIN_SIZE];
         for i in 0..NUM_SLOTS {
             if let Some(cert_chain) = &cert_chains[i] {
@@ -148,7 +148,7 @@ impl State {
                     self.algorithms.base_hash_algo_selected,
                     &buf[..size],
                 );
-                digests[i].as_mut().copy_from_slice(digest.as_ref());
+                digests[i].extend_from_slice(digest.as_ref()).unwrap();
             }
         }
         Ok(digests)

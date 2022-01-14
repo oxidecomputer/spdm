@@ -75,7 +75,7 @@ impl Challenge {
 }
 
 /// The responder side of challenge authentication
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ChallengeAuth {
     // Set to 0xF if the responder's public key was pre-provisioned on the
     // requester.
@@ -142,12 +142,13 @@ impl ChallengeAuth {
         measurement_summary_digest: &[u8],
         opaque_data: OpaqueData,
         sig: &[u8],
-    ) -> Result<ChallengeAuth, WriteError> {
-        let cert_chain_hash = cert_chain_digest.try_into()?;
-        let measurement_summary_hash = measurement_summary_digest.try_into()?;
-        let signature = sig.try_into()?;
+    ) -> ChallengeAuth {
+        let cert_chain_hash = DigestBuf::from_slice(cert_chain_digest).unwrap();
+        let measurement_summary_hash =
+            DigestBuf::from_slice(measurement_summary_digest).unwrap();
+        let signature = SignatureBuf::from_slice(sig).unwrap();
 
-        Ok(ChallengeAuth {
+        ChallengeAuth {
             slot,
             slot_mask,
             use_mutual_auth,
@@ -156,7 +157,7 @@ impl ChallengeAuth {
             measurement_summary_hash,
             opaque_data,
             signature,
-        })
+        }
     }
 
     /// Deserialize the body of the ChallengeAuth message, given the digest_size
@@ -173,9 +174,14 @@ impl ChallengeAuth {
         let use_mutual_auth = r.get_bit()? == 1;
         let slot_mask = r.get_byte()?;
 
-        let cert_chain_hash = DigestBuf::read(digest_size, &mut r)?;
+        let cert_chain_hash =
+            DigestBuf::from_slice(r.get_slice(digest_size as usize)?).unwrap();
+
         let nonce = Nonce::read(&mut r)?;
-        let measurement_summary_hash = DigestBuf::read(digest_size, &mut r)?;
+
+        let measurement_summary_hash =
+            DigestBuf::from_slice(r.get_slice(digest_size as usize)?).unwrap();
+
         let opaque_data_len = r.get_u16()?;
 
         if opaque_data_len as usize > MAX_OPAQUE_DATA_SIZE {
@@ -185,7 +191,10 @@ impl ChallengeAuth {
             ));
         }
         let opaque_data = OpaqueData::read(&mut r)?;
-        let signature = SignatureBuf::read(signature_size, &mut r)?;
+
+        let signature =
+            SignatureBuf::from_slice(r.get_slice(signature_size as usize)?)
+                .unwrap();
 
         Ok(ChallengeAuth {
             slot,
@@ -218,23 +227,29 @@ mod tests {
     fn round_trip_challenge_auth() {
         let digest_size = 32;
         let signature_size = 64;
+        let mut cert_chain_hash = DigestBuf::new();
+        cert_chain_hash.resize(digest_size, 9).unwrap();
+        let mut measurement_summary_hash = DigestBuf::new();
+        measurement_summary_hash.resize(digest_size, 7).unwrap();
+        let mut signature = SignatureBuf::new();
+        signature.resize(signature_size, 1).unwrap();
         let c = ChallengeAuth {
             slot: 0,
             use_mutual_auth: false,
             slot_mask: 0x1,
-            cert_chain_hash: DigestBuf::new_with_magic(digest_size, 9),
+            cert_chain_hash,
             nonce: Nonce::new_with_magic(13),
-            measurement_summary_hash: DigestBuf::new_with_magic(digest_size, 7),
+            measurement_summary_hash,
             opaque_data: OpaqueData::default(),
-            signature: SignatureBuf::new_with_magic(signature_size, 1),
+            signature,
         };
 
         let mut buf = [0u8; 256];
         let _ = c.write(&mut buf).unwrap();
         let c2 = ChallengeAuth::parse_body(
             &buf[HEADER_SIZE..],
-            digest_size,
-            signature_size,
+            digest_size as u8,
+            signature_size as u16,
         )
         .unwrap();
 

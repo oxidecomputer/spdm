@@ -10,28 +10,26 @@ use super::{
 use crate::config;
 
 use core::convert::{TryFrom, TryInto};
+use heapless::Vec;
 use rand::{rngs::OsRng, RngCore};
 
 /// General opaque data format used in other messages.
 ///
 /// Table 92 From section 14 in SPDM spec version 1.2.0
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub struct OpaqueData {
-    total_elements: u8,
-    elements: [OpaqueElement; config::MAX_OPAQUE_ELEMENTS],
+    elements: Vec<OpaqueElement, { config::MAX_OPAQUE_ELEMENTS }>,
 }
 
 impl OpaqueData {
     pub fn serialized_size(&self) -> usize {
-        4 + self.elements[..self.total_elements as usize]
-            .iter()
-            .fold(0, |acc, e| acc + e.serialized_size())
+        4 + self.elements.iter().fold(0, |acc, e| acc + e.serialized_size())
     }
 
     pub fn write(&self, w: &mut Writer) -> Result<(), WriteError> {
-        w.put(self.total_elements)?;
+        w.put(self.elements.len() as u8)?;
         w.put_reserved(3)?;
-        for element in &self.elements[..self.total_elements as usize] {
+        for element in &self.elements {
             element.write(w)?;
         }
         Ok(())
@@ -40,58 +38,32 @@ impl OpaqueData {
     pub fn read(r: &mut Reader) -> Result<OpaqueData, ReadError> {
         let total_elements = r.get_byte()?;
         r.skip_reserved(3)?;
-        let mut elements =
-            [OpaqueElement::default(); config::MAX_OPAQUE_ELEMENTS];
-        for i in 0..total_elements as usize {
-            elements[i] = OpaqueElement::read(r)?;
+        let mut elements = Vec::new();
+        for _ in 0..total_elements as usize {
+            elements.push(OpaqueElement::read(r)?).map_err(|_| {
+                ReadError::new("OpaqueData", ReadErrorKind::UnexpectedValue)
+            })?;
         }
-        Ok(OpaqueData { total_elements, elements })
+        Ok(OpaqueData { elements })
     }
 }
 
 /// An element in an OpaqueList
 ///
 /// Table 93 in SPDM spec version 1.2.0
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct OpaqueElement {
     registry_id: VendorRegistryId,
     vendor_id: VendorId,
 
     // Defined by the vendor or standards body
-    data_len: u16,
-    data: [u8; config::MAX_OPAQUE_ELEMENT_DATA_SIZE],
-}
-
-// We can't derive PartialEq because data may only be
-// partially full.
-impl PartialEq for OpaqueElement {
-    fn eq(&self, other: &Self) -> bool {
-        self.registry_id == other.registry_id
-            && self.vendor_id == other.vendor_id
-            && self.data_len == other.data_len
-            && self.data[..self.data_len as usize]
-                == other.data[..other.data_len as usize]
-    }
-}
-
-impl Eq for OpaqueElement {}
-
-impl Default for OpaqueElement {
-    fn default() -> Self {
-        OpaqueElement {
-            registry_id: VendorRegistryId::Dmtf,
-            vendor_id: VendorId::Empty,
-            data_len: 0,
-            data: [0u8; config::MAX_OPAQUE_ELEMENT_DATA_SIZE],
-        }
-    }
+    data: Vec<u8, { config::MAX_OPAQUE_ELEMENT_DATA_SIZE }>,
 }
 
 impl OpaqueElement {
     pub fn serialized_size(&self) -> usize {
-        let raw = 4
-            + self.registry_id.vendor_id_len() as usize
-            + self.data_len as usize;
+        let raw =
+            4 + self.registry_id.vendor_id_len() as usize + self.data.len();
         raw + Self::padding(raw)
     }
 
@@ -120,11 +92,11 @@ impl OpaqueElement {
             )
         })?;
 
-        w.put_u16(self.data_len)?;
-        w.extend(&self.data[..self.data_len as usize])?;
+        w.put_u16(self.data.len() as u16)?;
+        w.extend(&self.data)?;
 
         // Each element must be aligned on a 4 byte boundary
-        let bytes_written = 4 + vendor_len + self.data_len as usize;
+        let bytes_written = 4 + vendor_len + self.data.len();
         w.put_reserved(Self::padding(bytes_written) as u8)?;
         Ok(())
     }
@@ -136,11 +108,13 @@ impl OpaqueElement {
 
         let vendor_id = VendorId::read(r, vendor_id_len)?;
         let data_len = r.get_u16()?;
-        let mut data = [0u8; config::MAX_OPAQUE_ELEMENT_DATA_SIZE];
-        r.get_slice(data_len as usize, &mut data)?;
-        let bytes_read = 4 + vendor_id_len as usize + data_len as usize;
+        let data =
+            Vec::from_slice(r.get_slice(data_len as usize)?).map_err(|_| {
+                ReadError::new("OpaqueElement", ReadErrorKind::UnexpectedValue)
+            })?;
+        let bytes_read = 4 + vendor_id_len as usize + data.len();
         r.skip_reserved(Self::padding(bytes_read))?;
-        Ok(OpaqueElement { registry_id, vendor_id, data_len, data })
+        Ok(OpaqueElement { registry_id, vendor_id, data })
     }
 }
 
@@ -261,133 +235,8 @@ impl VendorRegistryId {
     }
 }
 
-/// An buffer capable of storing digests of unknown size at compile time.
-#[derive(Debug, Copy, Clone)]
-pub struct DigestBuf {
-    size: u8,
-    buf: [u8; config::MAX_DIGEST_SIZE],
-}
-
-impl DigestBuf {
-    pub fn new(size: u8) -> DigestBuf {
-        DigestBuf { size, buf: [0; config::MAX_DIGEST_SIZE] }
-    }
-
-    pub fn read(size: u8, r: &mut Reader) -> Result<DigestBuf, ReadError> {
-        let mut digest = DigestBuf::new(size);
-        r.get_slice(size as usize, digest.as_mut())?;
-        Ok(digest)
-    }
-
-    pub fn len(&self) -> usize {
-        self.size as usize
-    }
-}
-
-impl AsRef<[u8]> for DigestBuf {
-    fn as_ref(&self) -> &[u8] {
-        &self.buf[..self.size as usize]
-    }
-}
-
-impl AsMut<[u8]> for DigestBuf {
-    fn as_mut(&mut self) -> &mut [u8] {
-        &mut self.buf[..self.size as usize]
-    }
-}
-
-impl TryFrom<&[u8]> for DigestBuf {
-    type Error = WriteError;
-    fn try_from(buf: &[u8]) -> Result<Self, Self::Error> {
-        if buf.len() > config::MAX_DIGEST_SIZE {
-            return Err(WriteError::new(
-                "DigestBuf",
-                WriteErrorKind::TooLarge {
-                    field: "buf.len()",
-                    max_size: 256,
-                    actual_size: buf.len(),
-                },
-            ));
-        }
-        let mut digest = DigestBuf::new(buf.len() as u8);
-        digest.as_mut().copy_from_slice(buf);
-        Ok(digest)
-    }
-}
-
-// We can't derive PartialEq because buf may only be
-// partially full.
-impl PartialEq for DigestBuf {
-    fn eq(&self, other: &Self) -> bool {
-        self.size == other.size && self.as_ref() == other.as_ref()
-    }
-}
-
-impl Eq for DigestBuf {}
-
-/// A buffer capable of storing signatures of unknown size at compile time.
-#[derive(Debug, Copy, Clone)]
-pub struct SignatureBuf {
-    size: u16,
-    buf: [u8; config::MAX_SIGNATURE_SIZE],
-}
-
-impl SignatureBuf {
-    pub fn new(size: u16) -> SignatureBuf {
-        SignatureBuf { size, buf: [0; config::MAX_SIGNATURE_SIZE] }
-    }
-
-    pub fn read(size: u16, r: &mut Reader) -> Result<SignatureBuf, ReadError> {
-        let mut sig = SignatureBuf::new(size);
-        r.get_slice(size as usize, sig.as_mut())?;
-        Ok(sig)
-    }
-
-    pub fn len(&self) -> usize {
-        self.size as usize
-    }
-}
-
-impl AsRef<[u8]> for SignatureBuf {
-    fn as_ref(&self) -> &[u8] {
-        &self.buf[..self.size as usize]
-    }
-}
-
-impl AsMut<[u8]> for SignatureBuf {
-    fn as_mut(&mut self) -> &mut [u8] {
-        &mut self.buf[..self.size as usize]
-    }
-}
-
-impl TryFrom<&[u8]> for SignatureBuf {
-    type Error = WriteError;
-    fn try_from(buf: &[u8]) -> Result<Self, Self::Error> {
-        if buf.len() > config::MAX_SIGNATURE_SIZE {
-            return Err(WriteError::new(
-                "SignatureBuf",
-                WriteErrorKind::TooLarge {
-                    field: "buf.len()",
-                    max_size: 256,
-                    actual_size: buf.len(),
-                },
-            ));
-        }
-        let mut digest = SignatureBuf::new(buf.len() as u16);
-        digest.as_mut().copy_from_slice(buf);
-        Ok(digest)
-    }
-}
-
-// We can't derive PartialEq because buf may only be
-// partially full.
-impl PartialEq for SignatureBuf {
-    fn eq(&self, other: &Self) -> bool {
-        self.size == other.size && self.as_ref() == other.as_ref()
-    }
-}
-
-impl Eq for SignatureBuf {}
+pub type DigestBuf = Vec<u8, { config::MAX_DIGEST_SIZE }>;
+pub type SignatureBuf = Vec<u8, { config::MAX_SIGNATURE_SIZE }>;
 
 /// A unique random value used for cryptographic purposes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -402,7 +251,7 @@ impl Nonce {
 
     pub fn read(r: &mut Reader) -> Result<Nonce, ReadError> {
         let mut nonce = [0u8; 32];
-        r.get_slice(32, &mut nonce)?;
+        nonce.as_mut().copy_from_slice(r.get_slice(32)?);
         Ok(Nonce(nonce))
     }
 }
@@ -423,20 +272,6 @@ impl AsMut<[u8]> for Nonce {
 mod tests {
     use super::*;
 
-    /// The `new_with_magic` methods are useful for manually parsing serialized
-    /// buffers and are available for testing only.
-    impl DigestBuf {
-        pub fn new_with_magic(size: u8, magic: u8) -> DigestBuf {
-            DigestBuf { size, buf: [magic; config::MAX_DIGEST_SIZE] }
-        }
-    }
-
-    impl SignatureBuf {
-        pub fn new_with_magic(size: u16, magic: u8) -> SignatureBuf {
-            SignatureBuf { size, buf: [magic; config::MAX_SIGNATURE_SIZE] }
-        }
-    }
-
     impl Nonce {
         pub fn new_with_magic(magic: u8) -> Nonce {
             Nonce([magic; 32])
@@ -445,21 +280,20 @@ mod tests {
 
     #[test]
     fn roundtrip_opaque_data() {
-        let elements = [
+        let elements = Vec::from_slice(&[
             OpaqueElement {
                 registry_id: VendorRegistryId::Dmtf,
                 vendor_id: VendorId::Empty,
-                data_len: 1,
-                data: [1u8; config::MAX_OPAQUE_ELEMENT_DATA_SIZE],
+                data: Vec::from_slice(&[1]).unwrap(),
             },
             OpaqueElement {
                 registry_id: VendorRegistryId::Tcg,
                 vendor_id: VendorId::U16(0x2222),
-                data_len: 4,
-                data: [4u8; config::MAX_OPAQUE_ELEMENT_DATA_SIZE],
+                data: Vec::from_slice(&[4, 4, 4, 4]).unwrap(),
             },
-        ];
-        let data = OpaqueData { total_elements: 2, elements };
+        ])
+        .unwrap();
+        let data = OpaqueData { elements };
 
         let mut buf = [0u8; 1024];
         {
@@ -476,8 +310,7 @@ mod tests {
         let element = OpaqueElement {
             registry_id: VendorRegistryId::Tcg,
             vendor_id: VendorId::Empty,
-            data_len: 4,
-            data: [4u8; config::MAX_OPAQUE_ELEMENT_DATA_SIZE],
+            data: Vec::from_slice(&[4, 4, 4, 4]).unwrap(),
         };
 
         let mut buf = [0u8; 1024];
@@ -490,8 +323,7 @@ mod tests {
         let element = OpaqueElement {
             registry_id: VendorRegistryId::Tcg,
             vendor_id: VendorId::U16(0x1111),
-            data_len: 4,
-            data: [4u8; config::MAX_OPAQUE_ELEMENT_DATA_SIZE],
+            data: Vec::from_slice(&[4, 4, 4, 4]).unwrap(),
         };
 
         let mut buf = [0u8; 1024];

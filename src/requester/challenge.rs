@@ -129,7 +129,7 @@ impl State {
             &self.cert_chain[..self.cert_chain_size as usize],
         );
 
-        if rsp.cert_chain_hash.as_ref() != digest.as_ref() {
+        if rsp.cert_chain_hash.as_slice() != digest.as_ref() {
             return Err(RequesterError::BadChallengeAuth("digest mismatch"));
         }
 

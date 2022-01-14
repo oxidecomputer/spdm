@@ -332,16 +332,10 @@ impl<'a> Reader<'a> {
         Ok(u16::from_le_bytes(*buf))
     }
 
-    /// Copy a slice of `size` into `buf` and advance the cursor.
-    ///
-    /// `buf` must be at least `size` bytes long
+    /// Return a slice and advance the cursor.
     ///
     /// This only works for aligned reads.
-    pub fn get_slice(
-        &mut self,
-        size: usize,
-        buf: &mut [u8],
-    ) -> Result<(), ReadError> {
+    pub fn get_slice(&mut self, size: usize) -> Result<&[u8], ReadError> {
         if !self.is_aligned() {
             return Err(self.err(ReadErrorKind::Unaligned));
         }
@@ -352,8 +346,7 @@ impl<'a> Reader<'a> {
 
         let start = self.byte_offset;
         self.byte_offset += size;
-        buf[..size].copy_from_slice(&self.buf[start..self.byte_offset]);
-        Ok(())
+        Ok(&self.buf[start..self.byte_offset])
     }
 
     /// Read a u32 in little endian byte order

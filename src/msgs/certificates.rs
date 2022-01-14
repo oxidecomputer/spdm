@@ -90,7 +90,8 @@ impl Certificate {
         }
         let remainder_length = r.get_u16()?;
         let mut cert_chain = [0u8; MAX_CERT_CHAIN_SIZE];
-        r.get_slice(portion_length as usize, &mut cert_chain)?;
+        cert_chain.as_mut()[..portion_length as usize]
+            .copy_from_slice(r.get_slice(portion_length as usize)?);
 
         Ok(Certificate { slot, portion_length, remainder_length, cert_chain })
     }
