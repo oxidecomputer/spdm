@@ -3,7 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use super::algorithms::MeasurementSpec;
-use super::common::{Nonce, OpaqueData};
+use super::common::{Nonce, OpaqueData, SignatureBuf};
 use super::encoding::{
     ReadError, ReadErrorKind, Reader, WriteError, WriteErrorKind, Writer,
 };
@@ -290,11 +290,9 @@ pub struct Measurements {
     pub num_blocks: u8,
     pub blocks: [MeasurementBlock; config::MAX_MEASUREMENT_BLOCKS],
 
-    pub nonce: [u8; 32],
+    pub nonce: Nonce,
     pub opaque_data: OpaqueData,
-
-    pub signature_size: usize,
-    pub signature: [u8; config::MAX_SIGNATURE_SIZE],
+    pub signature: SignatureBuf,
 }
 
 #[cfg(test)]

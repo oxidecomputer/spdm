@@ -1,5 +1,5 @@
 This is a rust implementation of the
-https://www.dmtf.org/sites/default/files/standards/documents/DSP0274_1.1.1.pdf[SPDM]
+https://www.dmtf.org/sites/default/files/standards/documents/DSP0274_1.2.0.pdf[SPDM]
 protocol specifically designed to work well with
 microcontrollers and async networking in application level code. It is a `#[no_std]` codebase and
 performs zero heap allocations. It also attempts to minimize the number of built in stack
