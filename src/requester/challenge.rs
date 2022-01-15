@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use core::convert::{From, TryFrom};
+use core::convert::From;
 
 use super::{expect, id_auth, RequesterError};
 use crate::config::MAX_CERT_CHAIN_SIZE;
@@ -12,7 +12,7 @@ use crate::crypto::{
 };
 use crate::msgs::{
     capabilities::{ReqFlags, RspFlags},
-    common::{DigestSize, Nonce, SignatureSize},
+    common::{DigestSize, Nonce},
     Algorithms, CertificateChain, Challenge, ChallengeAuth,
     MeasurementHashType, Msg, VersionEntry, HEADER_SIZE,
 };

@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use core::convert::{From, TryFrom};
+use core::convert::From;
 
 use super::{expect, id_auth, AllStates, ResponderError};
 
@@ -13,7 +13,7 @@ use crate::crypto::{
 };
 use crate::msgs::{
     capabilities::{ReqFlags, RspFlags},
-    common::{DigestBuf, DigestSize, Nonce, SignatureBuf, SignatureSize},
+    common::{DigestBuf, Nonce, SignatureBuf},
     encoding::Writer,
     Algorithms, Challenge, ChallengeAuth, Msg, OpaqueData, HEADER_SIZE,
 };

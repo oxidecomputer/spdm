@@ -2,14 +2,14 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use core::convert::{From, TryFrom};
+use core::convert::From;
 
 use super::{algorithms, challenge, expect, RequesterError};
 use crate::config::{MAX_CERT_CHAIN_SIZE, NUM_SLOTS};
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
 use crate::msgs::{
-    common::DigestSize, Algorithms, Certificate, Digests, GetCertificate,
-    GetDigests, Msg, VersionEntry, HEADER_SIZE,
+    Algorithms, Certificate, Digests, GetCertificate, GetDigests, Msg,
+    VersionEntry, HEADER_SIZE,
 };
 use crate::Transcript;
 
