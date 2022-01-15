@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use super::encoding::{ReadError, ReadErrorKind, Reader, WriteError, Writer};
+use super::encoding::{BufferFullError, ReadError, Reader, Writer};
 use super::Msg;
 
 /// Request the SPDM version in use at the responder.
@@ -17,14 +17,14 @@ impl Msg for GetVersion {
 
     const SPDM_CODE: u8 = 0x84;
 
-    fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
+    fn write_body(&self, w: &mut Writer) -> Result<usize, BufferFullError> {
         w.put_reserved(2)
     }
 }
 
 impl GetVersion {
     pub fn parse_body(buf: &[u8]) -> Result<GetVersion, ReadError> {
-        let mut reader = Reader::new(Self::NAME, buf);
+        let mut reader = Reader::new(buf);
         reader.skip_reserved(2)?;
         Ok(GetVersion {})
     }
@@ -81,7 +81,7 @@ impl Msg for Version {
 
     const SPDM_CODE: u8 = 0x04;
 
-    fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
+    fn write_body(&self, w: &mut Writer) -> Result<usize, BufferFullError> {
         // Reserved bytes
         w.put(0)?;
         w.put(0)?;
@@ -98,19 +98,31 @@ impl Msg for Version {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub enum ParseVersionError {
+    /// More versions were received than there is space to handle
+    TooManyVersionsReceived,
+
+    /// Error processing input
+    Read(ReadError),
+}
+
+impl From<ReadError> for ParseVersionError {
+    fn from(e: ReadError) -> Self {
+        ParseVersionError::Read(e)
+    }
+}
+
 impl Version {
-    pub fn parse_body(buf: &[u8]) -> Result<Version, ReadError> {
-        let mut reader = Reader::new(Self::NAME, buf);
+    pub fn parse_body(buf: &[u8]) -> Result<Version, ParseVersionError> {
+        let mut reader = Reader::new(buf);
 
         reader.skip_reserved(3)?;
 
         // 1 byte number of version entries
         let num_entries = reader.get_byte()?;
         if num_entries > MAX_ALLOWED_VERSIONS {
-            return Err(ReadError::new(
-                Self::NAME,
-                ReadErrorKind::ImplementationLimitReached,
-            ));
+            return Err(ParseVersionError::TooManyVersionsReceived);
         }
 
         let mut version = Version::empty();

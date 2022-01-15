@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use super::encoding::{ReadError, ReadErrorKind, Reader, WriteError, Writer};
+use super::encoding::{BufferFullError, ReadError, Reader, Writer};
 use super::Msg;
 
 use bitflags::bitflags;
@@ -28,10 +28,14 @@ bitflags! {
     }
 }
 
+/// The capability failed to parse
+#[derive(Debug, PartialEq)]
+pub struct ParseReqCapabilityError;
+
 // We only allow strings for fields we want the user to configure, excluding
 // things like `PSK_CAP_MASK`.
 impl FromStr for ReqFlags {
-    type Err = ReadError;
+    type Err = ParseReqCapabilityError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let flag = match s {
             "CERT_CAP" => ReqFlags::CERT_CAP,
@@ -49,13 +53,22 @@ impl FromStr for ReqFlags {
             }
             "PUB_KEY_ID_CAP" => ReqFlags::PUB_KEY_ID_CAP,
             _ => {
-                return Err(ReadError::new(
-                    "CAPABILITIES",
-                    ReadErrorKind::UnexpectedValue,
-                ))
+                return Err(ParseReqCapabilityError);
             }
         };
         Ok(flag)
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ParseGetCapabilitiesError {
+    InvalidBitsSet,
+    Read(ReadError),
+}
+
+impl From<ReadError> for ParseGetCapabilitiesError {
+    fn from(e: ReadError) -> Self {
+        ParseGetCapabilitiesError::Read(e)
     }
 }
 
@@ -72,7 +85,7 @@ impl Msg for GetCapabilities {
 
     const SPDM_CODE: u8 = 0xE1;
 
-    fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
+    fn write_body(&self, w: &mut Writer) -> Result<usize, BufferFullError> {
         w.put_reserved(3)?;
         w.put(self.ct_exponent)?;
         w.put_reserved(2)?;
@@ -81,15 +94,16 @@ impl Msg for GetCapabilities {
 }
 
 impl GetCapabilities {
-    pub fn parse_body(buf: &[u8]) -> Result<GetCapabilities, ReadError> {
-        let mut reader = Reader::new(Self::NAME, buf);
+    pub fn parse_body(
+        buf: &[u8],
+    ) -> Result<GetCapabilities, ParseGetCapabilitiesError> {
+        let mut reader = Reader::new(buf);
         reader.skip_reserved(3)?;
         let ct_exponent = reader.get_byte()?;
         reader.skip_reserved(2)?;
         let flags = reader.get_u32()?;
-        let flags = ReqFlags::from_bits(flags).ok_or_else(|| {
-            ReadError::new(Self::NAME, ReadErrorKind::InvalidBitsSet)
-        })?;
+        let flags = ReqFlags::from_bits(flags)
+            .ok_or_else(|| ParseGetCapabilitiesError::InvalidBitsSet)?;
         Ok(GetCapabilities { ct_exponent, flags })
     }
 }
@@ -118,10 +132,14 @@ bitflags! {
     }
 }
 
+/// The capability failed to parse
+#[derive(Debug, PartialEq)]
+pub struct ParseRspCapabilityError;
+
 // We only allow strings for fields we want the user to configure, excluding
 // things like `PSK_CAP_MASK`.impl FromStr for RspFlags {
 impl FromStr for RspFlags {
-    type Err = ReadError;
+    type Err = ParseRspCapabilityError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let flag = match s {
             "CACHE_CAP" => RspFlags::CACHE_CAP,
@@ -141,13 +159,22 @@ impl FromStr for RspFlags {
             }
             "PUB_KEY_ID_CAP" => RspFlags::PUB_KEY_ID_CAP,
             _ => {
-                return Err(ReadError::new(
-                    "CAPABILITIES",
-                    ReadErrorKind::UnexpectedValue,
-                ))
+                return Err(ParseRspCapabilityError);
             }
         };
         Ok(flag)
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ParseCapabilitiesError {
+    InvalidBitsSet,
+    Read(ReadError),
+}
+
+impl From<ReadError> for ParseCapabilitiesError {
+    fn from(e: ReadError) -> Self {
+        ParseCapabilitiesError::Read(e)
     }
 }
 
@@ -164,7 +191,7 @@ impl Msg for Capabilities {
 
     const SPDM_CODE: u8 = 0x61;
 
-    fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
+    fn write_body(&self, w: &mut Writer) -> Result<usize, BufferFullError> {
         w.put_reserved(3)?;
         w.put(self.ct_exponent)?;
         w.put_reserved(2)?;
@@ -173,15 +200,16 @@ impl Msg for Capabilities {
 }
 
 impl Capabilities {
-    pub fn parse_body(buf: &[u8]) -> Result<Capabilities, ReadError> {
-        let mut reader = Reader::new(Self::NAME, buf);
+    pub fn parse_body(
+        buf: &[u8],
+    ) -> Result<Capabilities, ParseCapabilitiesError> {
+        let mut reader = Reader::new(buf);
         reader.skip_reserved(3)?;
         let ct_exponent = reader.get_byte()?;
         reader.skip_reserved(2)?;
         let flags = reader.get_u32()?;
-        let flags = RspFlags::from_bits(flags).ok_or_else(|| {
-            ReadError::new(Self::NAME, ReadErrorKind::InvalidBitsSet)
-        })?;
+        let flags = RspFlags::from_bits(flags)
+            .ok_or_else(|| ParseCapabilitiesError::InvalidBitsSet)?;
         Ok(Capabilities { ct_exponent, flags })
     }
 }

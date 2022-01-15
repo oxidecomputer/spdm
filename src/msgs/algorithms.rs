@@ -3,7 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use super::common::{DigestSize, SignatureSize};
-use super::encoding::{ReadError, ReadErrorKind, Reader, WriteError, Writer};
+use super::encoding::{BufferFullError, ReadError, Reader, Writer};
 use super::Msg;
 
 use bitflags::bitflags;
@@ -43,8 +43,11 @@ impl BaseAsymAlgo {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub struct ParseBaseAsymAlgoError;
+
 impl FromStr for BaseAsymAlgo {
-    type Err = ReadError;
+    type Err = ParseBaseAsymAlgoError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let algo = match s {
             "RSASSA_2048" => BaseAsymAlgo::RSASSA_2048,
@@ -57,10 +60,7 @@ impl FromStr for BaseAsymAlgo {
             "ECDSA_ECC_NIST_P384" => BaseAsymAlgo::ECDSA_ECC_NIST_P384,
             "ECDSA_ECC_NIST_P521" => BaseAsymAlgo::ECDSA_ECC_NIST_P521,
             _ => {
-                return Err(ReadError::new(
-                    "BaseAsymAlgo",
-                    ReadErrorKind::UnexpectedValue,
-                ))
+                return Err(ParseBaseAsymAlgoError);
             }
         };
         Ok(algo)
@@ -94,8 +94,11 @@ impl BaseHashAlgo {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub struct ParseBaseHashAlgoError;
+
 impl FromStr for BaseHashAlgo {
-    type Err = ReadError;
+    type Err = ParseBaseHashAlgoError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let algo = match s {
             "SHA_256" => BaseHashAlgo::SHA_256,
@@ -105,10 +108,7 @@ impl FromStr for BaseHashAlgo {
             "SHA3_384" => BaseHashAlgo::SHA3_384,
             "SHA3_512" => BaseHashAlgo::SHA3_512,
             _ => {
-                return Err(ReadError::new(
-                    "BaseHashAlgo",
-                    ReadErrorKind::UnexpectedValue,
-                ))
+                return Err(ParseBaseHashAlgoError);
             }
         };
         Ok(algo)
@@ -243,6 +243,20 @@ impl Default for AlgorithmRequest {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub enum ParseAlgorithmRequestError {
+    IncorrectFixedAlgCount,
+    InvalidFixedAlgorithm,
+    InvalidAlgorithmType,
+    Read(ReadError),
+}
+
+impl From<ReadError> for ParseAlgorithmRequestError {
+    fn from(e: ReadError) -> Self {
+        ParseAlgorithmRequestError::Read(e)
+    }
+}
+
 impl AlgorithmRequest {
     /// Return the number of bytes required to fit fixed spdm algorithm options
     /// for the given algorithm type.
@@ -260,7 +274,7 @@ impl AlgorithmRequest {
     }
 
     /// Serialize an AlgorithmRequest structure
-    pub fn write(&self, w: &mut Writer) -> Result<usize, WriteError> {
+    pub fn write(&self, w: &mut Writer) -> Result<usize, BufferFullError> {
         match &self {
             AlgorithmRequest::Dhe(algo) => {
                 w.put(DheAlgorithm::TYPE)?;
@@ -288,23 +302,21 @@ impl AlgorithmRequest {
 
     // Deserialize an AlgorithmRequest structure
     pub fn read(
-        msg_name: &'static str,
         r: &mut Reader,
-    ) -> Result<AlgorithmRequest, ReadError> {
+    ) -> Result<AlgorithmRequest, ParseAlgorithmRequestError> {
         match r.get_byte()? {
             DheAlgorithm::TYPE => {
                 let ext_count = r.get_bits(4)? as usize;
                 let fixed_count = r.get_bits(4)?;
                 if fixed_count != DheAlgorithm::FIXED_ALG_COUNT {
-                    return Err(ReadError::new(
-                        msg_name,
-                        ReadErrorKind::UnexpectedValue,
-                    ));
+                    return Err(
+                        ParseAlgorithmRequestError::IncorrectFixedAlgCount,
+                    );
                 }
                 let supported = r.get_u16()?;
                 let supported = DheFixedAlgorithms::from_bits(supported)
                     .ok_or_else(|| {
-                        ReadError::new(msg_name, ReadErrorKind::InvalidBitsSet)
+                        ParseAlgorithmRequestError::InvalidFixedAlgorithm
                     })?;
                 r.skip_ignored(4 * ext_count)?;
                 Ok(AlgorithmRequest::Dhe(DheAlgorithm { supported }))
@@ -314,15 +326,14 @@ impl AlgorithmRequest {
                 let ext_count = r.get_bits(4)? as usize;
                 let fixed_count = r.get_bits(4)?;
                 if fixed_count != AeadAlgorithm::FIXED_ALG_COUNT {
-                    return Err(ReadError::new(
-                        msg_name,
-                        ReadErrorKind::UnexpectedValue,
-                    ));
+                    return Err(
+                        ParseAlgorithmRequestError::IncorrectFixedAlgCount,
+                    );
                 }
                 let supported = r.get_u16()?;
                 let supported = AeadFixedAlgorithms::from_bits(supported)
                     .ok_or_else(|| {
-                        ReadError::new(msg_name, ReadErrorKind::InvalidBitsSet)
+                        ParseAlgorithmRequestError::InvalidFixedAlgorithm
                     })?;
                 r.skip_ignored(4 * ext_count)?;
                 Ok(AlgorithmRequest::Aead(AeadAlgorithm { supported }))
@@ -332,19 +343,15 @@ impl AlgorithmRequest {
                 let ext_count = r.get_bits(4)? as usize;
                 let fixed_count = r.get_bits(4)?;
                 if fixed_count != ReqBaseAsymAlgorithm::FIXED_ALG_COUNT {
-                    return Err(ReadError::new(
-                        msg_name,
-                        ReadErrorKind::UnexpectedValue,
-                    ));
+                    return Err(
+                        ParseAlgorithmRequestError::IncorrectFixedAlgCount,
+                    );
                 }
                 let supported = r.get_u16()?;
                 let supported =
                     ReqBaseAsymFixedAlgorithms::from_bits(supported)
                         .ok_or_else(|| {
-                            ReadError::new(
-                                msg_name,
-                                ReadErrorKind::InvalidBitsSet,
-                            )
+                            ParseAlgorithmRequestError::InvalidFixedAlgorithm
                         })?;
                 r.skip_ignored(4 * ext_count)?;
                 Ok(AlgorithmRequest::ReqBaseAsym(ReqBaseAsymAlgorithm {
@@ -356,19 +363,15 @@ impl AlgorithmRequest {
                 let ext_count = r.get_bits(4)? as usize;
                 let fixed_count = r.get_bits(4)?;
                 if fixed_count != KeyScheduleAlgorithm::FIXED_ALG_COUNT {
-                    return Err(ReadError::new(
-                        msg_name,
-                        ReadErrorKind::UnexpectedValue,
-                    ));
+                    return Err(
+                        ParseAlgorithmRequestError::IncorrectFixedAlgCount,
+                    );
                 }
                 let supported = r.get_u16()?;
                 let supported =
                     KeyScheduleFixedAlgorithms::from_bits(supported)
                         .ok_or_else(|| {
-                            ReadError::new(
-                                msg_name,
-                                ReadErrorKind::InvalidBitsSet,
-                            )
+                            ParseAlgorithmRequestError::InvalidFixedAlgorithm
                         })?;
                 r.skip_ignored(4 * ext_count)?;
                 Ok(AlgorithmRequest::KeySchedule(KeyScheduleAlgorithm {
@@ -376,8 +379,31 @@ impl AlgorithmRequest {
                 }))
             }
 
-            _ => Err(ReadError::new(msg_name, ReadErrorKind::UnexpectedValue)),
+            _ => Err(ParseAlgorithmRequestError::InvalidAlgorithmType),
         }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ParseNegotiateAlgorithmsError {
+    TooLarge,
+    MaxAlgorithmRequestsExceeded,
+    InvalidMeasurementSpec,
+    InvalidBaseAsymAlgo,
+    InvalidBaseHashAlgo,
+    Read(ReadError),
+    AlgorithmRequest(ParseAlgorithmRequestError),
+}
+
+impl From<ReadError> for ParseNegotiateAlgorithmsError {
+    fn from(e: ReadError) -> Self {
+        ParseNegotiateAlgorithmsError::Read(e)
+    }
+}
+
+impl From<ParseAlgorithmRequestError> for ParseNegotiateAlgorithmsError {
+    fn from(e: ParseAlgorithmRequestError) -> Self {
+        ParseNegotiateAlgorithmsError::AlgorithmRequest(e)
     }
 }
 
@@ -405,7 +431,7 @@ impl Msg for NegotiateAlgorithms {
 
     const SPDM_CODE: u8 = 0xE3;
 
-    fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
+    fn write_body(&self, w: &mut Writer) -> Result<usize, BufferFullError> {
         w.put(self.num_algorithm_requests)?;
         w.put_reserved(1)?;
         w.put_u16(self.msg_length())?;
@@ -422,14 +448,15 @@ impl Msg for NegotiateAlgorithms {
 }
 
 impl NegotiateAlgorithms {
-    pub fn parse_body(buf: &[u8]) -> Result<NegotiateAlgorithms, ReadError> {
-        let mut r = Reader::new(Self::NAME, buf);
+    pub fn parse_body(
+        buf: &[u8],
+    ) -> Result<NegotiateAlgorithms, ParseNegotiateAlgorithmsError> {
+        let mut r = Reader::new(buf);
         let num_requests = r.get_byte()?;
         if num_requests as usize > MAX_ALGORITHM_REQUESTS {
-            return Err(ReadError::new(
-                Self::NAME,
-                ReadErrorKind::ImplementationLimitReached,
-            ));
+            return Err(
+                ParseNegotiateAlgorithmsError::MaxAlgorithmRequestsExceeded,
+            );
         }
 
         r.skip_reserved(1)?;
@@ -437,15 +464,12 @@ impl NegotiateAlgorithms {
         // TODO: Use this for validation?
         let length = r.get_u16()?;
         if length > 128 {
-            return Err(ReadError::new(
-                Self::NAME,
-                ReadErrorKind::SpdmLimitReached,
-            ));
+            return Err(ParseNegotiateAlgorithmsError::TooLarge);
         }
         let spec = r.get_byte()?;
         let measurement_spec =
             MeasurementSpec::from_bits(spec).ok_or_else(|| {
-                ReadError::new(Self::NAME, ReadErrorKind::InvalidBitsSet)
+                ParseNegotiateAlgorithmsError::InvalidMeasurementSpec
             })?;
 
         r.skip_reserved(1)?;
@@ -453,13 +477,13 @@ impl NegotiateAlgorithms {
         let algo = r.get_u32()?;
         let base_asym_algo =
             BaseAsymAlgo::from_bits(algo).ok_or_else(|| {
-                ReadError::new(Self::NAME, ReadErrorKind::InvalidBitsSet)
+                ParseNegotiateAlgorithmsError::InvalidBaseAsymAlgo
             })?;
 
         let algo = r.get_u32()?;
         let base_hash_algo =
             BaseHashAlgo::from_bits(algo).ok_or_else(|| {
-                ReadError::new(Self::NAME, ReadErrorKind::InvalidBitsSet)
+                ParseNegotiateAlgorithmsError::InvalidBaseHashAlgo
             })?;
 
         r.skip_reserved(12)?;
@@ -493,9 +517,9 @@ impl NegotiateAlgorithms {
         r: &mut Reader,
         num_requests: u8,
         requests: &mut [AlgorithmRequest; MAX_ALGORITHM_REQUESTS],
-    ) -> Result<(), ReadError> {
+    ) -> Result<(), ParseNegotiateAlgorithmsError> {
         for i in 0..num_requests as usize {
-            requests[i] = AlgorithmRequest::read(Self::NAME, r)?;
+            requests[i] = AlgorithmRequest::read(r)?;
         }
         Ok(())
     }
@@ -511,7 +535,7 @@ impl NegotiateAlgorithms {
     fn write_algorithm_requests(
         &self,
         w: &mut Writer,
-    ) -> Result<usize, WriteError> {
+    ) -> Result<usize, BufferFullError> {
         for i in 0..self.num_algorithm_requests as usize {
             self.algorithm_requests[i].write(w)?;
         }
@@ -519,8 +543,50 @@ impl NegotiateAlgorithms {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub enum ParseAlgorithmsError {
+    MaxAlgorithmResponsesExceeded,
+    InvalidMeasurementSpecSelected,
+    MoreThanOneMeasurementSpecSelected,
+    InvalidMeasurementHashAlgoSelected,
+    MoreThanOneMeasurementHashAlgoSelected,
+    InvalidBaseAsymAlgoSelected,
+    MoreThanOneBaseAsymAlgoSelected,
+    InvalidBaseHashAlgoSelected,
+    MoreThanOneBaseHashAlgoSelected,
+    AlgorithmsResponse(ParseAlgorithmResponseError),
+    AlgorithmsRequest(ParseAlgorithmRequestError),
+    Read(ReadError),
+}
+
+impl From<ReadError> for ParseAlgorithmsError {
+    fn from(e: ReadError) -> Self {
+        ParseAlgorithmsError::Read(e)
+    }
+}
+
+impl From<ParseAlgorithmResponseError> for ParseAlgorithmsError {
+    fn from(e: ParseAlgorithmResponseError) -> Self {
+        ParseAlgorithmsError::AlgorithmsResponse(e)
+    }
+}
+
+impl From<ParseAlgorithmRequestError> for ParseAlgorithmsError {
+    fn from(e: ParseAlgorithmRequestError) -> Self {
+        ParseAlgorithmsError::AlgorithmsRequest(e)
+    }
+}
+
 // The format is the same for both messages
 pub type AlgorithmResponse = AlgorithmRequest;
+
+#[derive(Debug, PartialEq)]
+pub enum ParseAlgorithmResponseError {
+    MoreThanOneDheAlgoSelected,
+    MoreThanOneAeadAlgoSelected,
+    MoreThanOneBaseAsymAlgoSelected,
+    MoreThanOneKeySchedule,
+}
 
 /// The algorithms selected by the responder as part of negotiation
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
@@ -540,7 +606,7 @@ impl Msg for Algorithms {
 
     const SPDM_CODE: u8 = 0x63;
 
-    fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
+    fn write_body(&self, w: &mut Writer) -> Result<usize, BufferFullError> {
         w.put(self.num_algorithm_responses)?;
         w.put_reserved(1)?;
         w.put_u16(self.msg_length())?;
@@ -562,14 +628,11 @@ impl Msg for Algorithms {
 }
 
 impl Algorithms {
-    pub fn parse_body(buf: &[u8]) -> Result<Algorithms, ReadError> {
-        let mut r = Reader::new(Self::NAME, buf);
+    pub fn parse_body(buf: &[u8]) -> Result<Algorithms, ParseAlgorithmsError> {
+        let mut r = Reader::new(buf);
         let num_responses = r.get_byte()?;
         if num_responses as usize > MAX_ALGORITHM_REQUESTS {
-            return Err(ReadError::new(
-                Self::NAME,
-                ReadErrorKind::ImplementationLimitReached,
-            ));
+            return Err(ParseAlgorithmsError::MaxAlgorithmResponsesExceeded);
         }
 
         r.skip_reserved(1)?;
@@ -580,10 +643,12 @@ impl Algorithms {
         let selection = r.get_byte()?;
         let measurement_spec_selected = MeasurementSpec::from_bits(selection)
             .ok_or_else(|| {
-            ReadError::new(Self::NAME, ReadErrorKind::InvalidBitsSet)
+            ParseAlgorithmsError::InvalidMeasurementSpecSelected
         })?;
         if measurement_spec_selected.bits().count_ones() != 1 {
-            return Self::too_many_bits();
+            return Err(
+                ParseAlgorithmsError::MoreThanOneMeasurementSpecSelected,
+            );
         }
 
         r.skip_reserved(1)?;
@@ -591,28 +656,26 @@ impl Algorithms {
         let selection = r.get_u32()?;
         let measurement_hash_algo_selected = BaseHashAlgo::from_bits(selection)
             .ok_or_else(|| {
-                ReadError::new(Self::NAME, ReadErrorKind::InvalidBitsSet)
+                ParseAlgorithmsError::InvalidMeasurementHashAlgoSelected
             })?;
         if measurement_hash_algo_selected.bits().count_ones() != 1 {
-            return Self::too_many_bits();
+            return Err(
+                ParseAlgorithmsError::MoreThanOneMeasurementHashAlgoSelected,
+            );
         }
 
         let selection = r.get_u32()?;
         let base_asym_algo_selected = BaseAsymAlgo::from_bits(selection)
-            .ok_or_else(|| {
-                ReadError::new(Self::NAME, ReadErrorKind::InvalidBitsSet)
-            })?;
+            .ok_or_else(|| ParseAlgorithmsError::InvalidBaseAsymAlgoSelected)?;
         if base_asym_algo_selected.bits().count_ones() != 1 {
-            return Self::too_many_bits();
+            return Err(ParseAlgorithmsError::MoreThanOneBaseAsymAlgoSelected);
         }
 
         let selection = r.get_u32()?;
         let base_hash_algo_selected = BaseHashAlgo::from_bits(selection)
-            .ok_or_else(|| {
-                ReadError::new(Self::NAME, ReadErrorKind::InvalidBitsSet)
-            })?;
+            .ok_or_else(|| ParseAlgorithmsError::InvalidBaseHashAlgoSelected)?;
         if base_hash_algo_selected.bits().count_ones() != 1 {
-            return Self::too_many_bits();
+            return Err(ParseAlgorithmsError::MoreThanOneBaseHashAlgoSelected);
         }
 
         r.skip_reserved(12)?;
@@ -648,7 +711,7 @@ impl Algorithms {
     fn write_algorithm_responses(
         &self,
         w: &mut Writer,
-    ) -> Result<usize, WriteError> {
+    ) -> Result<usize, BufferFullError> {
         for i in 0..self.num_algorithm_responses as usize {
             self.algorithm_responses[i].write(w)?;
         }
@@ -659,9 +722,9 @@ impl Algorithms {
         r: &mut Reader,
         num_responses: u8,
         responses: &mut [AlgorithmResponse; MAX_ALGORITHM_REQUESTS],
-    ) -> Result<(), ReadError> {
+    ) -> Result<(), ParseAlgorithmsError> {
         for i in 0..num_responses as usize {
-            responses[i] = AlgorithmResponse::read(Self::NAME, r)?;
+            responses[i] = AlgorithmResponse::read(r)?;
             Self::ensure_only_one_bit_set(&responses[i])?;
         }
         Ok(())
@@ -669,34 +732,36 @@ impl Algorithms {
 
     fn ensure_only_one_bit_set(
         response: &AlgorithmResponse,
-    ) -> Result<(), ReadError> {
+    ) -> Result<(), ParseAlgorithmsError> {
         match response {
             AlgorithmResponse::Dhe(algo) => {
                 if algo.supported.bits().count_ones() != 1 {
-                    Self::too_many_bits()?;
+                    return Err(
+                        ParseAlgorithmResponseError::MoreThanOneDheAlgoSelected
+                            .into(),
+                    );
                 }
             }
             AlgorithmResponse::Aead(algo) => {
                 if algo.supported.bits().count_ones() != 1 {
-                    Self::too_many_bits()?;
+                    return Err(ParseAlgorithmResponseError::MoreThanOneAeadAlgoSelected.into());
                 }
             }
             AlgorithmResponse::ReqBaseAsym(algo) => {
                 if algo.supported.bits().count_ones() != 1 {
-                    Self::too_many_bits()?;
+                    return Err(ParseAlgorithmResponseError::MoreThanOneBaseAsymAlgoSelected.into());
                 }
             }
             AlgorithmResponse::KeySchedule(algo) => {
                 if algo.supported.bits().count_ones() != 1 {
-                    Self::too_many_bits()?;
+                    return Err(
+                        ParseAlgorithmResponseError::MoreThanOneKeySchedule
+                            .into(),
+                    );
                 }
             }
         }
         Ok(())
-    }
-
-    fn too_many_bits() -> Result<Algorithms, ReadError> {
-        Err(ReadError::new(Self::NAME, ReadErrorKind::TooManyBitsSet))
     }
 }
 
