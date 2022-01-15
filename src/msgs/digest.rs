@@ -5,7 +5,7 @@
 use core::cmp::PartialEq;
 
 use super::common::{DigestBuf, DigestSize};
-use super::encoding::{ReadError, Reader, WriteError, Writer};
+use super::encoding::{BufferFullError, ReadError, Reader, Writer};
 use super::Msg;
 
 use crate::config::NUM_SLOTS;
@@ -26,14 +26,14 @@ impl Msg for GetDigests {
 
     const SPDM_CODE: u8 = 0x81;
 
-    fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
+    fn write_body(&self, w: &mut Writer) -> Result<usize, BufferFullError> {
         w.put_reserved(2)
     }
 }
 
 impl GetDigests {
     pub fn parse_body(buf: &[u8]) -> Result<GetDigests, ReadError> {
-        let mut reader = Reader::new(Self::NAME, buf);
+        let mut reader = Reader::new(buf);
         reader.skip_reserved(2)?;
         Ok(GetDigests {})
     }
@@ -56,7 +56,7 @@ impl Msg for Digests {
 
     const SPDM_CODE: u8 = 0x01;
 
-    fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
+    fn write_body(&self, w: &mut Writer) -> Result<usize, BufferFullError> {
         w.put_reserved(1)?;
         w.put(self.slot_mask)?;
         self.write_digests(w)
@@ -69,7 +69,7 @@ impl Digests {
         digest_size: DigestSize,
         buf: &[u8],
     ) -> Result<Digests, ReadError> {
-        let mut r = Reader::new(Self::NAME, buf);
+        let mut r = Reader::new(buf);
         r.skip_reserved(1)?;
         let slot_mask = r.get_byte()?;
         Self::read_digests(slot_mask, digest_size, &mut r)
@@ -99,7 +99,7 @@ impl Digests {
     // slot k is the kth bit set in `self.slot_mask`.
     //
     // We loop over the ones from low to high in `self.slot_mask`.
-    fn write_digests(&self, w: &mut Writer) -> Result<usize, WriteError> {
+    fn write_digests(&self, w: &mut Writer) -> Result<usize, BufferFullError> {
         let mut bits = self.slot_mask;
         let mut offset = w.offset();
         let mut k = bits.trailing_zeros() as usize;

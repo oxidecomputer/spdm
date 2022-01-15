@@ -7,9 +7,7 @@ use core::cmp::PartialEq;
 use crate::config::{MAX_CERT_CHAIN_DEPTH, MAX_CERT_CHAIN_SIZE};
 
 use super::common::DigestSize;
-use super::encoding::{
-    ReadError, ReadErrorKind, Reader, WriteError, WriteErrorKind, Writer,
-};
+use super::encoding::{BufferFullError, ReadError, Reader, Writer};
 use super::Msg;
 
 /// A request for a certificate portion in a given slot
@@ -32,7 +30,7 @@ impl Msg for GetCertificate {
 
     const SPDM_CODE: u8 = 0x82;
 
-    fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
+    fn write_body(&self, w: &mut Writer) -> Result<usize, BufferFullError> {
         w.put(self.slot)?;
         w.put_reserved(1)?;
         w.put_u16(self.offset)?;
@@ -42,7 +40,7 @@ impl Msg for GetCertificate {
 
 impl GetCertificate {
     pub fn parse_body(buf: &[u8]) -> Result<GetCertificate, ReadError> {
-        let mut r = Reader::new(Self::NAME, buf);
+        let mut r = Reader::new(buf);
         let slot = r.get_byte()?;
         r.skip_reserved(1)?;
         let offset = r.get_u16()?;
@@ -68,7 +66,7 @@ impl Msg for Certificate {
 
     const SPDM_CODE: u8 = 0x02;
 
-    fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
+    fn write_body(&self, w: &mut Writer) -> Result<usize, BufferFullError> {
         w.put(self.slot)?;
         w.put_reserved(1)?;
         w.put_u16(self.portion_length)?;
@@ -77,17 +75,28 @@ impl Msg for Certificate {
     }
 }
 
+#[derive(Debug)]
+pub enum ParseCertificateError {
+    TooLarge,
+    Read(ReadError),
+}
+
+impl From<ReadError> for ParseCertificateError {
+    fn from(e: ReadError) -> Self {
+        ParseCertificateError::Read(e)
+    }
+}
+
 impl Certificate {
-    pub fn parse_body(buf: &[u8]) -> Result<Certificate, ReadError> {
-        let mut r = Reader::new(Self::NAME, buf);
+    pub fn parse_body(
+        buf: &[u8],
+    ) -> Result<Certificate, ParseCertificateError> {
+        let mut r = Reader::new(buf);
         let slot = r.get_byte()?;
         r.skip_reserved(1)?;
         let portion_length = r.get_u16()?;
         if portion_length as usize > MAX_CERT_CHAIN_SIZE {
-            return Err(ReadError::new(
-                Self::NAME,
-                ReadErrorKind::ImplementationLimitReached,
-            ));
+            return Err(ParseCertificateError::TooLarge);
         }
         let remainder_length = r.get_u16()?;
         let mut cert_chain = [0u8; MAX_CERT_CHAIN_SIZE];
@@ -130,10 +139,34 @@ impl<'a> PartialEq for CertificateChain<'a> {
 
 impl<'a> Eq for CertificateChain<'a> {}
 
-/// Indicates that there is no more room for intermediate certs in a
-/// `CertificateChain`.
 #[derive(Debug)]
-pub struct Full {}
+pub struct MaxCertChainDepthExceededError;
+
+#[derive(Debug)]
+pub enum WriteCertificateChainError {
+    MaxSizeExceeded,
+    BufferFull,
+}
+
+impl From<BufferFullError> for WriteCertificateChainError {
+    fn from(_: BufferFullError) -> Self {
+        WriteCertificateChainError::BufferFull
+    }
+}
+
+#[derive(Debug)]
+pub enum ParseCertificateChainError {
+    BadDerEncoding,
+    LengthMismatch,
+    MaxDepthExceeded,
+    Read(ReadError),
+}
+
+impl From<ReadError> for ParseCertificateChainError {
+    fn from(e: ReadError) -> Self {
+        ParseCertificateChainError::Read(e)
+    }
+}
 
 impl<'a> CertificateChain<'a> {
     /// Create a new certificate chain with no intermediate certificates
@@ -171,9 +204,9 @@ impl<'a> CertificateChain<'a> {
     pub fn append_intermediate_cert(
         &mut self,
         cert: &'a [u8],
-    ) -> Result<(), Full> {
+    ) -> Result<(), MaxCertChainDepthExceededError> {
         if self.num_intermediate_certs as usize == MAX_CERT_CHAIN_DEPTH {
-            return Err(Full {});
+            return Err(MaxCertChainDepthExceededError);
         }
         self.intermediate_certs[self.num_intermediate_certs as usize] = cert;
         self.num_intermediate_certs += 1;
@@ -181,17 +214,17 @@ impl<'a> CertificateChain<'a> {
     }
 
     /// Serialize a certificate chain via a Writer
-    pub fn write(&self, w: &mut Writer) -> Result<usize, WriteError> {
+    pub fn write(
+        &self,
+        w: &mut Writer,
+    ) -> Result<usize, WriteCertificateChainError> {
         let length = 4
             + self.root_hash.len()
             + (0..self.num_intermediate_certs as usize)
                 .fold(0, |acc, i| acc + self.intermediate_certs[i].len())
             + self.leaf_cert.len();
         if length > 65535 {
-            return Err(WriteError::new(
-                "CERTFICATE",
-                WriteErrorKind::InvalidRange("CertificateChain (length)"),
-            ));
+            return Err(WriteCertificateChainError::MaxSizeExceeded);
         }
         w.put_u16(length as u16)?;
         w.put_reserved(2)?;
@@ -199,7 +232,8 @@ impl<'a> CertificateChain<'a> {
         for i in 0..self.num_intermediate_certs as usize {
             w.extend(self.intermediate_certs[i])?;
         }
-        w.extend(self.leaf_cert)
+        w.extend(self.leaf_cert)?;
+        Ok(w.offset())
     }
 
     /// Deserialize a CertificateChain into `buf` given `digest_size`.
@@ -208,11 +242,11 @@ impl<'a> CertificateChain<'a> {
     pub fn parse(
         buf: &'a [u8],
         digest_size: DigestSize,
-    ) -> Result<CertificateChain<'a>, ReadError> {
-        let mut r = Reader::new("CERTFICATE", buf);
+    ) -> Result<CertificateChain<'a>, ParseCertificateChainError> {
+        let mut r = Reader::new(buf);
         let length = r.get_u16()?;
         if length as usize != buf.len() {
-            return Err(Self::err_unexpected());
+            return Err(ParseCertificateChainError::LengthMismatch);
         }
         r.skip_reserved(2)?;
         let offset = r.byte_offset();
@@ -227,17 +261,14 @@ impl<'a> CertificateChain<'a> {
             let offset = r.byte_offset();
             let (length, header_size) = Self::read_cert_size(&mut r)?;
             if length > r.remaining() {
-                return Err(Self::err_unexpected());
+                return Err(ParseCertificateChainError::LengthMismatch);
             }
             if length == r.remaining() {
                 // we found the end entity cert
                 break offset;
             }
             if num_intermediate_certs as usize == MAX_CERT_CHAIN_DEPTH {
-                return Err(ReadError::new(
-                    "CERTFICATE",
-                    ReadErrorKind::ImplementationLimitReached,
-                ));
+                return Err(ParseCertificateChainError::MaxDepthExceeded);
             }
             let end = offset + length + header_size;
             intermediate_certs[num_intermediate_certs as usize] =
@@ -257,10 +288,6 @@ impl<'a> CertificateChain<'a> {
         })
     }
 
-    fn err_unexpected() -> ReadError {
-        return ReadError::new("CERTFICATE", ReadErrorKind::UnexpectedValue);
-    }
-
     // Read the size of the cert from the DER encoded header along with the
     // number of bytes read (2 - 4).
     //
@@ -268,7 +295,9 @@ impl<'a> CertificateChain<'a> {
     // is encoded in the seven remaining bits of that byte. Otherwise, those
     // seven bits represent the number of bytes used to encode the length in big
     // endian format.
-    fn read_cert_size(r: &mut Reader) -> Result<(usize, usize), ReadError> {
+    fn read_cert_size(
+        r: &mut Reader,
+    ) -> Result<(usize, usize), ParseCertificateChainError> {
         // Skip the sequence byte
         assert_eq!(r.get_byte()?, 0x30);
 
@@ -277,7 +306,7 @@ impl<'a> CertificateChain<'a> {
             0x81 => {
                 let n = r.get_byte()?;
                 if n < 128 {
-                    return Err(Self::err_unexpected());
+                    return Err(ParseCertificateChainError::BadDerEncoding);
                 }
                 (n.into(), 3)
             }
@@ -286,12 +315,12 @@ impl<'a> CertificateChain<'a> {
                 let low = r.get_byte()? as usize;
                 let n = (high << 8) | low;
                 if n < 256 {
-                    return Err(Self::err_unexpected());
+                    return Err(ParseCertificateChainError::BadDerEncoding);
                 }
                 (n.into(), 4)
             }
             _ => {
-                return Err(Self::err_unexpected());
+                return Err(ParseCertificateChainError::BadDerEncoding);
             }
         };
         Ok(pair)
@@ -352,7 +381,7 @@ mod tests {
         let cert_chain = CertificateChain::new(&fake_hash, &der);
 
         let mut buf = [0u8; 1024];
-        let mut w = Writer::new("test", &mut buf);
+        let mut w = Writer::new(&mut buf);
         let size = cert_chain.write(&mut w).unwrap();
 
         let digest_size = DigestSize::try_from(32).unwrap();
@@ -391,7 +420,7 @@ mod tests {
         cert_chain.append_intermediate_cert(&der_inter2).unwrap();
 
         let mut buf = [0u8; 2048];
-        let mut w = Writer::new("test", &mut buf);
+        let mut w = Writer::new(&mut buf);
         let size = cert_chain.write(&mut w).unwrap();
 
         let digest_size = DigestSize::try_from(32).unwrap();

@@ -4,9 +4,7 @@
 
 use super::algorithms::MeasurementSpec;
 use super::common::{Nonce, OpaqueData, SignatureBuf};
-use super::encoding::{
-    ReadError, ReadErrorKind, Reader, WriteError, WriteErrorKind, Writer,
-};
+use super::encoding::{BufferFullError, ReadError, Reader, Writer};
 use super::Msg;
 use crate::config;
 
@@ -64,31 +62,29 @@ impl From<u8> for MeasurementIndex {
     }
 }
 
+#[derive(Debug)]
+pub enum WriteMeasurementIndexError {
+    InvalidImplementationDefinedIndex,
+    InvalidReservedIndex,
+}
+
 impl TryFrom<&MeasurementIndex> for u8 {
-    type Error = WriteError;
+    type Error = WriteMeasurementIndexError;
     fn try_from(val: &MeasurementIndex) -> Result<Self, Self::Error> {
         let index = match val {
             MeasurementIndex::TotalNumberOfMeasurementsAvailable => 0,
             MeasurementIndex::AllMeasurements => 0xFF,
             MeasurementIndex::ImplementationDefined(index) => {
                 if *index < 0x1 || *index > 0xEF {
-                    return Err(WriteError::new(
-                        "GET_MEASUREMENTS",
-                        WriteErrorKind::InvalidRange(
-                            "MeasurementIndex (ImplementationDefined)",
-                        ),
-                    ));
+                    return Err(WriteMeasurementIndexError::InvalidImplementationDefinedIndex);
                 }
                 *index
             }
             MeasurementIndex::Reserved(index) => {
                 if *index < 0xF0 || *index > 0xFC {
-                    return Err(WriteError::new(
-                        "GET_MEASUREMENTS",
-                        WriteErrorKind::InvalidRange(
-                            "MeasurementIndex (Reserved)",
-                        ),
-                    ));
+                    return Err(
+                        WriteMeasurementIndexError::InvalidReservedIndex,
+                    );
                 }
                 *index
             }
@@ -96,6 +92,37 @@ impl TryFrom<&MeasurementIndex> for u8 {
             MeasurementIndex::DeviceMode => 0xFE,
         };
         Ok(index)
+    }
+}
+
+#[derive(Debug)]
+pub enum WriteGetMeasurementsError {
+    BufferFull,
+    MeasurementIndex(WriteMeasurementIndexError),
+}
+
+impl From<BufferFullError> for WriteGetMeasurementsError {
+    fn from(_: BufferFullError) -> Self {
+        WriteGetMeasurementsError::BufferFull
+    }
+}
+
+impl From<WriteMeasurementIndexError> for WriteGetMeasurementsError {
+    fn from(e: WriteMeasurementIndexError) -> Self {
+        WriteGetMeasurementsError::MeasurementIndex(e)
+    }
+}
+
+#[derive(Debug)]
+pub enum ParseGetMeasurementsError {
+    ReservedBitsNotZero,
+    MaxSlotNumberExceeded,
+    Read(ReadError),
+}
+
+impl From<ReadError> for ParseGetMeasurementsError {
+    fn from(e: ReadError) -> Self {
+        ParseGetMeasurementsError::Read(e)
     }
 }
 
@@ -121,18 +148,13 @@ impl GetMeasurements {
         attributes: RequestAttributes,
         index: MeasurementIndex,
         slot_id: u8,
-    ) -> Result<GetMeasurements, WriteError> {
-        if (slot_id as usize) >= config::NUM_SLOTS {
-            return Err(WriteError::new(
-                Self::NAME,
-                WriteErrorKind::InvalidRange("slot_id"),
-            ));
-        }
+    ) -> GetMeasurements {
+        assert!((slot_id as usize) < config::NUM_SLOTS);
         let mut nonce = None;
         if attributes.signature_requested {
             nonce = Some(Nonce::new());
         }
-        Ok(GetMeasurements { attributes, index, slot_id, nonce })
+        GetMeasurements { attributes, index, slot_id, nonce }
     }
 }
 
@@ -141,7 +163,10 @@ impl Msg for GetMeasurements {
     const SPDM_VERSION: u8 = 0x12;
     const SPDM_CODE: u8 = 0xE0;
 
-    fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
+    fn write_body(
+        &self,
+        w: &mut Writer,
+    ) -> Result<usize, WriteGetMeasurementsError> {
         w.put((&self.attributes).into())?;
         w.put((&self.index).try_into()?)?;
         if self.attributes.signature_requested {
@@ -153,8 +178,10 @@ impl Msg for GetMeasurements {
 }
 
 impl GetMeasurements {
-    pub fn parse_body(buf: &[u8]) -> Result<GetMeasurements, ReadError> {
-        let mut r = Reader::new(Self::NAME, buf);
+    pub fn parse_body(
+        buf: &[u8],
+    ) -> Result<GetMeasurements, ParseGetMeasurementsError> {
+        let mut r = Reader::new(buf);
         let attributes = RequestAttributes {
             signature_requested: r.get_bit()? == 1,
             raw_bit_stream_requested: r.get_bit()? == 1,
@@ -162,10 +189,7 @@ impl GetMeasurements {
 
         // Skip over next 6 reserved bits
         if r.get_bits(6)? != 0 {
-            return Err(ReadError::new(
-                Self::NAME,
-                ReadErrorKind::InvalidBitsSet,
-            ));
+            return Err(ParseGetMeasurementsError::ReservedBitsNotZero);
         }
 
         let index = r.get_byte()?.into();
@@ -175,10 +199,7 @@ impl GetMeasurements {
             nonce = Some(Nonce::read(&mut r)?);
             slot_id = r.get_byte()?;
             if (slot_id as usize) >= config::NUM_SLOTS {
-                return Err(ReadError::new(
-                    Self::NAME,
-                    ReadErrorKind::UnexpectedValue,
-                ));
+                return Err(ParseGetMeasurementsError::MaxSlotNumberExceeded);
             }
         }
 
@@ -311,8 +332,7 @@ mod tests {
             },
             MeasurementIndex::AllMeasurements,
             0,
-        )
-        .unwrap();
+        );
 
         assert_eq!(37, msg.write(&mut buf).unwrap());
 
@@ -336,21 +356,6 @@ mod tests {
     }
 
     #[test]
-    fn get_measurements_constructor_err() {
-        // slot_id is outside valid range
-        let slot_id = 9;
-        assert!(GetMeasurements::new(
-            RequestAttributes {
-                signature_requested: false,
-                raw_bit_stream_requested: false
-            },
-            MeasurementIndex::AllMeasurements,
-            slot_id
-        )
-        .is_err())
-    }
-
-    #[test]
     fn get_measurements_write_err() {
         let mut buf = [0u8; 64];
         let mut msg = GetMeasurements::new(
@@ -361,8 +366,7 @@ mod tests {
             // 0x5 is not a reserved bit
             MeasurementIndex::Reserved(0x5),
             0,
-        )
-        .unwrap();
+        );
 
         assert!(msg.write(&mut buf).is_err());
 
@@ -386,8 +390,7 @@ mod tests {
             // 0x5 is not a reserved bit
             MeasurementIndex::DeviceMode,
             0,
-        )
-        .unwrap();
+        );
 
         assert_eq!(37, msg.write(&mut buf).unwrap());
 
