@@ -6,11 +6,10 @@ use core::cmp::PartialEq;
 use core::convert::{TryFrom, TryInto};
 
 use super::common::{
-    DigestBuf, DigestSize, Nonce, OpaqueData, SignatureBuf, SignatureSize,
+    DigestBuf, DigestSize, Nonce, OpaqueData, ParseOpaqueDataError,
+    SignatureBuf, SignatureSize, WriteOpaqueElementError,
 };
-use super::encoding::{
-    ReadError, ReadErrorKind, Reader, WriteError, WriteErrorKind, Writer,
-};
+use super::encoding::{BufferFullError, ReadError, Reader, Writer};
 use super::Msg;
 use crate::config::NUM_SLOTS;
 
@@ -25,18 +24,37 @@ pub enum MeasurementHashType {
     All = 0xFF,
 }
 
+#[derive(Debug)]
+pub struct ParseMeasurementHashTypeError;
+
 impl TryFrom<u8> for MeasurementHashType {
-    type Error = ReadError;
+    type Error = ParseMeasurementHashTypeError;
 
     fn try_from(val: u8) -> Result<Self, Self::Error> {
         match val {
             0x0 => Ok(MeasurementHashType::None),
             0x1 => Ok(MeasurementHashType::Tcb),
             0xFF => Ok(MeasurementHashType::All),
-            _ => {
-                Err(ReadError::new("CHALLENGE", ReadErrorKind::UnexpectedValue))
-            }
+            _ => Err(ParseMeasurementHashTypeError),
         }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ParseChallengeError {
+    InvalidMeasurementHashType,
+    Read(ReadError),
+}
+
+impl From<ReadError> for ParseChallengeError {
+    fn from(e: ReadError) -> Self {
+        ParseChallengeError::Read(e)
+    }
+}
+
+impl From<ParseMeasurementHashTypeError> for ParseChallengeError {
+    fn from(_: ParseMeasurementHashTypeError) -> Self {
+        ParseChallengeError::InvalidMeasurementHashType
     }
 }
 
@@ -59,7 +77,9 @@ impl Msg for Challenge {
     const SPDM_VERSION: u8 = 0x11;
     const SPDM_CODE: u8 = 0x83;
 
-    fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
+    type WriteError = BufferFullError;
+
+    fn write_body(&self, w: &mut Writer) -> Result<usize, BufferFullError> {
         w.put(self.slot)?;
         w.put(self.measurement_hash_type as u8)?;
         w.extend(&self.nonce.as_ref())
@@ -67,12 +87,52 @@ impl Msg for Challenge {
 }
 
 impl Challenge {
-    pub fn parse_body(buf: &[u8]) -> Result<Challenge, ReadError> {
-        let mut r = Reader::new(Self::NAME, buf);
+    pub fn parse_body(buf: &[u8]) -> Result<Challenge, ParseChallengeError> {
+        let mut r = Reader::new(buf);
         let slot = r.get_byte()?;
         let measurement_hash_type = r.get_byte()?.try_into()?;
         let nonce = Nonce::read(&mut r)?;
         Ok(Challenge { slot, measurement_hash_type, nonce })
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum WriteChallengeAuthError {
+    MaxSlotNumberExceeded,
+    MaxOpaqueDataSizeExceeded,
+    BufferFull,
+    WriteOpaqueElement(WriteOpaqueElementError),
+}
+
+impl From<BufferFullError> for WriteChallengeAuthError {
+    fn from(_: BufferFullError) -> Self {
+        WriteChallengeAuthError::BufferFull
+    }
+}
+
+impl From<WriteOpaqueElementError> for WriteChallengeAuthError {
+    fn from(e: WriteOpaqueElementError) -> Self {
+        WriteChallengeAuthError::WriteOpaqueElement(e)
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ParseChallengeAuthError {
+    MaxSlotNumberExceeded,
+    MaxOpaqueDataSizeExceeded,
+    ParseOpaqueData(ParseOpaqueDataError),
+    Read(ReadError),
+}
+
+impl From<ReadError> for ParseChallengeAuthError {
+    fn from(e: ReadError) -> Self {
+        ParseChallengeAuthError::Read(e)
+    }
+}
+
+impl From<ParseOpaqueDataError> for ParseChallengeAuthError {
+    fn from(e: ParseOpaqueDataError) -> Self {
+        ParseChallengeAuthError::ParseOpaqueData(e)
     }
 }
 
@@ -96,7 +156,12 @@ impl Msg for ChallengeAuth {
     const SPDM_VERSION: u8 = 0x11;
     const SPDM_CODE: u8 = 0x03;
 
-    fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
+    type WriteError = WriteChallengeAuthError;
+
+    fn write_body(
+        &self,
+        w: &mut Writer,
+    ) -> Result<usize, WriteChallengeAuthError> {
         self.validate()?;
         if self.use_mutual_auth {
             w.put(self.slot & (1 << 7))?;
@@ -109,28 +174,19 @@ impl Msg for ChallengeAuth {
         w.extend(&self.measurement_summary_hash.as_ref())?;
         w.put_u16(self.opaque_data.serialized_size() as u16)?;
         self.opaque_data.write(w)?;
-        w.extend(&self.signature.as_ref())
+        w.extend(&self.signature.as_ref())?;
+        Ok(w.offset())
     }
 }
 
 impl ChallengeAuth {
-    pub fn validate(&self) -> Result<(), WriteError> {
+    pub fn validate(&self) -> Result<(), WriteChallengeAuthError> {
         if self.slot as usize >= NUM_SLOTS {
-            return Err(WriteError::new(
-                Self::NAME,
-                WriteErrorKind::UnexpectedValue("slot"),
-            ));
+            return Err(WriteChallengeAuthError::MaxSlotNumberExceeded);
         }
         let opaque_size = self.opaque_data.serialized_size();
         if opaque_size > MAX_OPAQUE_DATA_SIZE {
-            return Err(WriteError::new(
-                Self::NAME,
-                WriteErrorKind::TooLarge {
-                    field: "OpaqueData",
-                    max_size: MAX_OPAQUE_DATA_SIZE,
-                    actual_size: opaque_size,
-                },
-            ));
+            return Err(WriteChallengeAuthError::MaxOpaqueDataSizeExceeded);
         }
         Ok(())
     }
@@ -169,9 +225,12 @@ impl ChallengeAuth {
         buf: &[u8],
         digest_size: DigestSize,
         signature_size: SignatureSize,
-    ) -> Result<ChallengeAuth, ReadError> {
-        let mut r = Reader::new(Self::NAME, buf);
+    ) -> Result<ChallengeAuth, ParseChallengeAuthError> {
+        let mut r = Reader::new(buf);
         let slot = r.get_bits(4)?;
+        if slot as usize > NUM_SLOTS {
+            return Err(ParseChallengeAuthError::MaxOpaqueDataSizeExceeded);
+        }
         let _ = r.get_bits(3)?;
         let use_mutual_auth = r.get_bit()? == 1;
         let slot_mask = r.get_byte()?;
@@ -182,10 +241,7 @@ impl ChallengeAuth {
         let opaque_data_len = r.get_u16()?;
 
         if opaque_data_len as usize > MAX_OPAQUE_DATA_SIZE {
-            return Err(ReadError::new(
-                Self::NAME,
-                ReadErrorKind::SpdmLimitReached,
-            ));
+            return Err(ParseChallengeAuthError::MaxOpaqueDataSizeExceeded);
         }
         let opaque_data = OpaqueData::read(&mut r)?;
         let signature = SignatureBuf::read(signature_size, &mut r)?;

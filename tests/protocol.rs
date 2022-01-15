@@ -334,7 +334,7 @@ fn assert_digests_match_cert_chains<'a, S: Signer>(
         // Is there a digest for the given slot
         if (1 << i as u8) & digests.slot_mask != 0 {
             let mut buf = [0u8; MAX_CERT_CHAIN_SIZE];
-            let mut w = Writer::new("CERTIFICATE_CHAIN", &mut buf);
+            let mut w = Writer::new(&mut buf);
             let size = slot.as_ref().unwrap().cert_chain.write(&mut w).unwrap();
             let expected = DigestImpl::hash(hash_algo, &buf[..size]);
             assert_eq!(digest.as_ref().unwrap().as_ref(), expected.as_ref());

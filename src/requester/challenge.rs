@@ -8,10 +8,11 @@ use super::{expect, id_auth, RequesterError};
 use crate::config::MAX_CERT_CHAIN_SIZE;
 use crate::crypto::{
     digest::{Digest, DigestImpl},
-    pki::{new_end_entity_cert, EndEntityCert},
+    pki::{self, new_end_entity_cert, EndEntityCert},
 };
 use crate::msgs::{
     capabilities::{ReqFlags, RspFlags},
+    challenge::ParseChallengeAuthError,
     common::{DigestSize, Nonce},
     Algorithms, CertificateChain, Challenge, ChallengeAuth,
     MeasurementHashType, Msg, VersionEntry, HEADER_SIZE,
@@ -38,6 +39,40 @@ const PROVISIONED_MASK: u8 = 0x0F;
 #[derive(Debug, PartialEq, Eq)]
 pub enum Transition {
     Placeholder,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ChallengeAuthError {
+    /// The responder did not indicate the slot which was requested
+    IncorrectSlot,
+
+    /// The slot mask does not contain the slot filled in by the responder
+    SlotNotInMask,
+
+    /// The digest in the response does not match the cert chain at the
+    /// requester
+    DigestMismatch,
+
+    /// The signature of the ChallengeAuth message is invalid
+    InvalidSignature,
+
+    /// Parsing failed for the ChallengeAuth message
+    ParseChallengeAuth(ParseChallengeAuthError),
+
+    /// Cert chain validation failed
+    Pki(pki::Error),
+}
+
+impl From<ParseChallengeAuthError> for ChallengeAuthError {
+    fn from(e: ParseChallengeAuthError) -> Self {
+        ChallengeAuthError::ParseChallengeAuth(e)
+    }
+}
+
+impl From<pki::Error> for ChallengeAuthError {
+    fn from(e: pki::Error) -> Self {
+        ChallengeAuthError::Pki(e)
+    }
 }
 
 /// Perform challenge-response authentication using the certificate chain
@@ -112,14 +147,14 @@ impl State {
         )?;
 
         if rsp.slot != self.cert_slot {
-            return Err(RequesterError::BadChallengeAuth("incorrect slot"));
+            return Err(ChallengeAuthError::IncorrectSlot.into());
         }
 
         // A cert is not provisioned and it's not included in the slot mask
         if (rsp.slot != PROVISIONED_MASK)
             && ((rsp.slot_mask & (1 << rsp.slot)) == 0)
         {
-            return Err(RequesterError::BadChallengeAuth("slot not in mask"));
+            return Err(ChallengeAuthError::SlotNotInMask.into());
         }
 
         // TODO: Handle pre-provisioned certs
@@ -129,7 +164,7 @@ impl State {
         );
 
         if rsp.cert_chain_hash.as_ref() != digest.as_ref() {
-            return Err(RequesterError::BadChallengeAuth("digest mismatch"));
+            return Err(ChallengeAuthError::DigestMismatch.into());
         }
 
         // TODO: Do something with returned measurements
@@ -147,7 +182,8 @@ impl State {
             rsp.signature.as_ref(),
             root_cert,
             UNIX_TIME,
-        )
+        )?;
+        Ok(Transition::Placeholder)
     }
 
     fn verify_cert_chain_and_signature(
@@ -175,7 +211,7 @@ impl State {
             m2_hash,
             signature,
         ) {
-            return Err(RequesterError::BadChallengeAuth("bad signature"));
+            return Err(ChallengeAuthError::InvalidSignature.into());
         }
 
         Ok(Transition::Placeholder)

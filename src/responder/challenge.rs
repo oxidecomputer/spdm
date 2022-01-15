@@ -64,7 +64,7 @@ impl State {
         let cert_chain_digest =
             if let Some(Some(slot)) = slots.get(req_msg.slot as usize) {
                 let mut buf = [0u8; MAX_CERT_CHAIN_SIZE];
-                let mut w = Writer::new("CERTIFICATE_CHAIN", &mut buf);
+                let mut w = Writer::new(&mut buf);
                 let size = slot.cert_chain.write(&mut w)?;
 
                 // TODO: Should we fail this if the selected hash algorithm does
