@@ -85,10 +85,8 @@ impl State {
         transcript: &mut Transcript,
     ) -> Result<(), RequesterError> {
         expect::<Digests>(buf)?;
-        let digest_size = DigestSize::try_from(
-            self.algorithms.base_hash_algo_selected.get_digest_size(),
-        )
-        .unwrap();
+        let digest_size =
+            self.algorithms.base_hash_algo_selected.get_digest_size();
         let digests = Digests::parse_body(digest_size, &buf[HEADER_SIZE..])?;
         self.digests = Some(digests);
         transcript.extend(buf)?;

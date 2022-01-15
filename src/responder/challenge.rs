@@ -54,14 +54,10 @@ impl State {
     ) -> Result<(usize, AllStates), ResponderError> {
         reset_on_get_version!(req, rsp, transcript);
         expect::<Challenge>(req)?;
-        let digest_size = DigestSize::try_from(
-            self.algorithms.base_hash_algo_selected.get_digest_size(),
-        )
-        .unwrap();
-        let signature_size = SignatureSize::try_from(
-            self.algorithms.base_asym_algo_selected.get_signature_size(),
-        )
-        .unwrap();
+        let digest_size =
+            self.algorithms.base_hash_algo_selected.get_digest_size();
+        let signature_size =
+            self.algorithms.base_asym_algo_selected.get_signature_size();
 
         let req_msg = Challenge::parse_body(&req[HEADER_SIZE..])?;
 

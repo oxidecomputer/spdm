@@ -101,14 +101,9 @@ impl State {
     ) -> Result<Transition, RequesterError> {
         expect::<ChallengeAuth>(buf)?;
         let hash_algo = self.algorithms.base_hash_algo_selected;
-
-        // This is a configuration error, so we want to unwrap and fail fast
-        let digest_size =
-            DigestSize::try_from(hash_algo.get_digest_size()).unwrap();
-        let signature_size = SignatureSize::try_from(
-            self.algorithms.base_asym_algo_selected.get_signature_size(),
-        )
-        .unwrap();
+        let digest_size = hash_algo.get_digest_size();
+        let signature_size =
+            self.algorithms.base_asym_algo_selected.get_signature_size();
 
         let rsp = ChallengeAuth::parse_body(
             &buf[HEADER_SIZE..],
