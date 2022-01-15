@@ -6,6 +6,7 @@ use core::cmp::PartialEq;
 
 use crate::config::{MAX_CERT_CHAIN_DEPTH, MAX_CERT_CHAIN_SIZE};
 
+use super::common::DigestSize;
 use super::encoding::{
     ReadError, ReadErrorKind, Reader, WriteError, WriteErrorKind, Writer,
 };
@@ -206,7 +207,7 @@ impl<'a> CertificateChain<'a> {
     /// `digest_size` must match the size of the digest used for the root hash.
     pub fn parse(
         buf: &'a [u8],
-        digest_size: u8,
+        digest_size: DigestSize,
     ) -> Result<CertificateChain<'a>, ReadError> {
         let mut r = Reader::new("CERTFICATE", buf);
         let length = r.get_u16()?;
@@ -216,7 +217,7 @@ impl<'a> CertificateChain<'a> {
         r.skip_reserved(2)?;
         let offset = r.byte_offset();
         r.skip_ignored(digest_size.into())?;
-        let root_hash = &buf[offset..offset + digest_size as usize];
+        let root_hash = &buf[offset..offset + usize::from(digest_size)];
 
         let mut num_intermediate_certs = 0u8;
         let mut intermediate_certs = [buf; MAX_CERT_CHAIN_DEPTH];
@@ -354,7 +355,7 @@ mod tests {
         let mut w = Writer::new("test", &mut buf);
         let size = cert_chain.write(&mut w).unwrap();
 
-        let digest_size = 32;
+        let digest_size = DigestSize::try_from(32).unwrap();
         let cert_chain2 =
             CertificateChain::parse(&buf[..size], digest_size).unwrap();
         assert_eq!(cert_chain, cert_chain2);
@@ -393,7 +394,7 @@ mod tests {
         let mut w = Writer::new("test", &mut buf);
         let size = cert_chain.write(&mut w).unwrap();
 
-        let digest_size = 32;
+        let digest_size = DigestSize::try_from(32).unwrap();
         let cert_chain2 =
             CertificateChain::parse(&buf[..size], digest_size).unwrap();
         assert_eq!(cert_chain, cert_chain2);

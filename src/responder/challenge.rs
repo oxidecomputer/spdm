@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use core::convert::From;
+use core::convert::{From, TryFrom};
 
 use super::{expect, id_auth, AllStates, ResponderError};
 
@@ -13,7 +13,7 @@ use crate::crypto::{
 };
 use crate::msgs::{
     capabilities::{ReqFlags, RspFlags},
-    common::{DigestBuf, Nonce, SignatureBuf},
+    common::{DigestBuf, DigestSize, Nonce, SignatureBuf, SignatureSize},
     encoding::Writer,
     Algorithms, Challenge, ChallengeAuth, Msg, OpaqueData, HEADER_SIZE,
 };
@@ -54,10 +54,14 @@ impl State {
     ) -> Result<(usize, AllStates), ResponderError> {
         reset_on_get_version!(req, rsp, transcript);
         expect::<Challenge>(req)?;
-        let digest_size =
-            self.algorithms.base_hash_algo_selected.get_digest_size();
-        let signature_size =
-            self.algorithms.base_asym_algo_selected.get_signature_size();
+        let digest_size = DigestSize::try_from(
+            self.algorithms.base_hash_algo_selected.get_digest_size(),
+        )
+        .unwrap();
+        let signature_size = SignatureSize::try_from(
+            self.algorithms.base_asym_algo_selected.get_signature_size(),
+        )
+        .unwrap();
 
         let req_msg = Challenge::parse_body(&req[HEADER_SIZE..])?;
 
@@ -105,11 +109,11 @@ impl State {
             measurement_summary_hash.as_ref(),
             OpaqueData::default(),
             dummy_sig.as_ref(),
-        )?;
+        );
 
         let size = auth.write(rsp)?;
 
-        let sig_start = size - signature_size as usize;
+        let sig_start = size - usize::from(signature_size);
         transcript.extend(&rsp[..sig_start])?;
 
         let m1_hash = DigestImpl::hash(

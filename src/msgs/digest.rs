@@ -4,7 +4,7 @@
 
 use core::cmp::PartialEq;
 
-use super::common::DigestBuf;
+use super::common::{DigestBuf, DigestSize};
 use super::encoding::{ReadError, Reader, WriteError, Writer};
 use super::Msg;
 
@@ -46,7 +46,7 @@ pub struct Digests {
 
     // Digests are mapped to their slot number
     // They are *not* put on the wire this way.
-    pub digests: [DigestBuf; NUM_SLOTS],
+    pub digests: [Option<DigestBuf>; NUM_SLOTS],
 }
 
 impl Msg for Digests {
@@ -66,10 +66,9 @@ impl Msg for Digests {
 impl Digests {
     // Read in digest using size of the digest agreed upon in NegotiateAlgorithms
     pub fn parse_body(
-        digest_size: u8,
+        digest_size: DigestSize,
         buf: &[u8],
     ) -> Result<Digests, ReadError> {
-        assert!(digest_size == 32 || digest_size == 48 || digest_size == 64);
         let mut r = Reader::new(Self::NAME, buf);
         r.skip_reserved(1)?;
         let slot_mask = r.get_byte()?;
@@ -78,14 +77,18 @@ impl Digests {
 
     fn read_digests(
         slot_mask: u8,
-        digest_size: u8,
+        digest_size: DigestSize,
         r: &mut Reader,
     ) -> Result<Digests, ReadError> {
-        let mut digests = [DigestBuf::new(digest_size); NUM_SLOTS];
+        // Avoid need to make DigestBuf copy
+        const VAL: Option<DigestBuf> = None;
+        let mut digests = [VAL; NUM_SLOTS];
         let mut bits = slot_mask;
         let mut k = bits.trailing_zeros() as usize;
         while k < NUM_SLOTS {
-            r.get_slice(digest_size as usize, digests[k].as_mut())?;
+            let mut digest = DigestBuf::new(digest_size);
+            r.get_slice(digest_size.into(), digest.as_mut())?;
+            digests[k] = Some(digest);
             bits ^= 1 << k;
             k = bits.trailing_zeros() as usize;
         }
@@ -101,7 +104,7 @@ impl Digests {
         let mut offset = w.offset();
         let mut k = bits.trailing_zeros() as usize;
         while k < NUM_SLOTS {
-            offset = w.extend(self.digests[k].as_ref())?;
+            offset = w.extend(self.digests[k].as_ref().unwrap().as_ref())?;
             bits ^= 1 << k;
             k = bits.trailing_zeros() as usize;
         }
@@ -114,12 +117,20 @@ mod tests {
     use super::super::HEADER_SIZE;
     use super::*;
 
-    fn test_digest(size: u8, magic: u8) -> DigestBuf {
-        DigestBuf::new_with_magic(size, magic)
+    use std::convert::TryFrom;
+
+    fn empty_digests() -> [Option<DigestBuf>; NUM_SLOTS] {
+        // Avoid requiring DigestBuf to be Copy
+        const VAL: Option<DigestBuf> = None;
+        [VAL; NUM_SLOTS]
     }
 
-    fn test_digests(size: u8) -> [DigestBuf; NUM_SLOTS] {
-        let mut digests = [DigestBuf::new(size); NUM_SLOTS];
+    fn test_digest(size: DigestSize, magic: u8) -> Option<DigestBuf> {
+        Some(DigestBuf::new_with_magic(size, magic))
+    }
+
+    fn test_digests(size: DigestSize) -> [Option<DigestBuf>; NUM_SLOTS] {
+        let mut digests = empty_digests();
         for i in 0..NUM_SLOTS {
             digests[i] = test_digest(size, i as u8);
         }
@@ -128,7 +139,7 @@ mod tests {
 
     #[test]
     fn digest_32_order_0x5_mask() {
-        let digest_size = 32;
+        let digest_size = DigestSize::try_from(32).unwrap();
         let d = Digests {
             slot_mask: 0x5, // 0th and 2nd slot occupied
             digests: test_digests(digest_size),
@@ -139,13 +150,13 @@ mod tests {
         assert_eq!(buf[3], 0x5);
         // Bits 0 and 2 are set in the slot mask, and the appropriate digests
         // are written out.
-        assert_eq!(&buf[4..36], test_digest(digest_size, 0).as_ref());
-        assert_eq!(&buf[36..68], test_digest(digest_size, 2).as_ref());
+        assert_eq!(&buf[4..36], test_digest(digest_size, 0).unwrap().as_ref());
+        assert_eq!(&buf[36..68], test_digest(digest_size, 2).unwrap().as_ref());
     }
 
     #[test]
     fn digest_32_order_0x16_mask() {
-        let digest_size = 32;
+        let digest_size = DigestSize::try_from(32).unwrap();
         let d = Digests {
             slot_mask: 0x16, // Bits 1, 2, 4 set
             digests: test_digests(digest_size),
@@ -156,15 +167,18 @@ mod tests {
         assert_eq!(buf[3], 0x16);
         // Bits 1,2,4 are set in the slot mask, and the appropriate digests
         // are written out.
-        assert_eq!(&buf[4..36], test_digest(digest_size, 1).as_ref());
-        assert_eq!(&buf[36..68], test_digest(digest_size, 2).as_ref());
-        assert_eq!(&buf[68..100], test_digest(digest_size, 4).as_ref());
+        assert_eq!(&buf[4..36], test_digest(digest_size, 1).unwrap().as_ref());
+        assert_eq!(&buf[36..68], test_digest(digest_size, 2).unwrap().as_ref());
+        assert_eq!(
+            &buf[68..100],
+            test_digest(digest_size, 4).unwrap().as_ref()
+        );
     }
 
     #[test]
     fn round_trip_digest_32_0x5_mask() {
-        let digest_size = 32;
-        let mut digests = [DigestBuf::new(digest_size); NUM_SLOTS];
+        let digest_size = DigestSize::try_from(32).unwrap();
+        let mut digests = empty_digests();
         digests[0] = test_digest(digest_size, 0);
         digests[2] = test_digest(digest_size, 2);
         let d = Digests {
@@ -174,15 +188,14 @@ mod tests {
         let mut buf = [0u8; 68];
         let _ = d.write(&mut buf).unwrap();
 
-        let digest_size = 32;
         let d2 = Digests::parse_body(digest_size, &buf[HEADER_SIZE..]).unwrap();
         assert_eq!(d, d2);
     }
 
     #[test]
     fn round_trip_digest_32_0x16_mask() {
-        let digest_size = 32;
-        let mut digests = [DigestBuf::new(digest_size); NUM_SLOTS];
+        let digest_size = DigestSize::try_from(32).unwrap();
+        let mut digests = empty_digests();
         digests[1] = test_digest(digest_size, 1);
         digests[2] = test_digest(digest_size, 2);
         digests[4] = test_digest(digest_size, 2);
@@ -199,7 +212,7 @@ mod tests {
 
     #[test]
     fn round_trip_digest_32_0xff_mask() {
-        let digest_size = 32;
+        let digest_size = DigestSize::try_from(32).unwrap();
         let d = Digests { slot_mask: 0xFF, digests: test_digests(digest_size) };
         let mut buf = [0u8; 324];
         let _ = d.write(&mut buf).unwrap();
@@ -210,8 +223,8 @@ mod tests {
 
     #[test]
     fn round_trip_digest_48_0x2_mask() {
-        let digest_size = 48;
-        let mut digests = [DigestBuf::new(digest_size); NUM_SLOTS];
+        let digest_size = DigestSize::try_from(48).unwrap();
+        let mut digests = empty_digests();
         digests[1] = test_digest(digest_size, 2);
         let d = Digests { slot_mask: 0x2, digests };
 

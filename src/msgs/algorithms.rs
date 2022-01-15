@@ -26,7 +26,7 @@ bitflags! {
 
 impl BaseAsymAlgo {
     // The signature size in bytes of the "Raw" or "Fixed" signature.
-    pub fn get_signature_size(&self) -> u16 {
+    pub fn get_signature_size(&self) -> usize {
         use BaseAsymAlgo as A;
         match *self {
             A::RSASSA_2048 | A::RSAPSS_2048 => 256,
@@ -79,7 +79,7 @@ bitflags! {
 
 impl BaseHashAlgo {
     /// The size of a digest in bytes
-    pub fn get_digest_size(&self) -> u8 {
+    pub fn get_digest_size(&self) -> usize {
         use BaseHashAlgo as H;
         match *self {
             H::SHA_256 | H::SHA3_256 => 32,

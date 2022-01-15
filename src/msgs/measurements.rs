@@ -145,7 +145,7 @@ impl Msg for GetMeasurements {
         w.put((&self.attributes).into())?;
         w.put((&self.index).try_into()?)?;
         if self.attributes.signature_requested {
-            w.extend(&self.nonce.unwrap().as_ref())?;
+            w.extend(&self.nonce.as_ref().unwrap().as_ref())?;
             w.put(self.slot_id)?;
         }
         Ok(w.offset())

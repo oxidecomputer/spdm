@@ -2,8 +2,9 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use super::{algorithms, challenge, expect, AllStates, ResponderError};
+use core::convert::TryFrom;
 
+use super::{algorithms, challenge, expect, AllStates, ResponderError};
 use crate::config::{MAX_CERT_CHAIN_SIZE, NUM_SLOTS};
 use crate::crypto::digest::{Digest, DigestImpl};
 use crate::msgs::{
@@ -135,10 +136,10 @@ impl State {
     fn hash_cert_chains<'a>(
         &self,
         cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
-    ) -> Result<[DigestBuf; NUM_SLOTS], ResponderError> {
-        let digest_size =
-            self.algorithms.base_hash_algo_selected.get_digest_size();
-        let mut digests = [DigestBuf::new(digest_size); NUM_SLOTS];
+    ) -> Result<[Option<DigestBuf>; NUM_SLOTS], ResponderError> {
+        // Avoid requiring DigestBuf to implement Copy
+        const VAL: Option<DigestBuf> = None;
+        let mut digests = [VAL; NUM_SLOTS];
         let mut buf = [0u8; MAX_CERT_CHAIN_SIZE];
         for i in 0..NUM_SLOTS {
             if let Some(cert_chain) = &cert_chains[i] {
@@ -148,7 +149,8 @@ impl State {
                     self.algorithms.base_hash_algo_selected,
                     &buf[..size],
                 );
-                digests[i].as_mut().copy_from_slice(digest.as_ref());
+                digests[i] =
+                    Some(DigestBuf::try_from(digest.as_ref()).unwrap());
             }
         }
         Ok(digests)

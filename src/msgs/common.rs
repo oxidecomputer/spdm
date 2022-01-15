@@ -261,55 +261,74 @@ impl VendorRegistryId {
     }
 }
 
+#[derive(Debug)]
+pub struct DigestTooLargeError;
+
+/// A checked size type that we can safely trust downstream without asserts
+/// Thanks for the idea Cliff!
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct DigestSize(usize);
+
+impl From<DigestSize> for usize {
+    fn from(size: DigestSize) -> Self {
+        size.0
+    }
+}
+
+impl TryFrom<usize> for DigestSize {
+    type Error = DigestTooLargeError;
+    fn try_from(x: usize) -> Result<Self, Self::Error> {
+        if x <= config::MAX_DIGEST_SIZE {
+            Ok(Self(x))
+        } else {
+            Err(DigestTooLargeError)
+        }
+    }
+}
+
 /// An buffer capable of storing digests of unknown size at compile time.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub struct DigestBuf {
-    size: u8,
+    size: DigestSize,
     buf: [u8; config::MAX_DIGEST_SIZE],
 }
 
 impl DigestBuf {
-    pub fn new(size: u8) -> DigestBuf {
+    pub fn new(size: DigestSize) -> DigestBuf {
         DigestBuf { size, buf: [0; config::MAX_DIGEST_SIZE] }
     }
 
-    pub fn read(size: u8, r: &mut Reader) -> Result<DigestBuf, ReadError> {
+    pub fn read(
+        size: DigestSize,
+        r: &mut Reader,
+    ) -> Result<DigestBuf, ReadError> {
         let mut digest = DigestBuf::new(size);
-        r.get_slice(size as usize, digest.as_mut())?;
+        r.get_slice(size.0, digest.as_mut())?;
         Ok(digest)
     }
 
     pub fn len(&self) -> usize {
-        self.size as usize
+        self.size.0
     }
 }
 
 impl AsRef<[u8]> for DigestBuf {
     fn as_ref(&self) -> &[u8] {
-        &self.buf[..self.size as usize]
+        &self.buf[..self.size.0]
     }
 }
 
 impl AsMut<[u8]> for DigestBuf {
     fn as_mut(&mut self) -> &mut [u8] {
-        &mut self.buf[..self.size as usize]
+        &mut self.buf[..self.size.0]
     }
 }
 
 impl TryFrom<&[u8]> for DigestBuf {
-    type Error = WriteError;
+    type Error = DigestTooLargeError;
     fn try_from(buf: &[u8]) -> Result<Self, Self::Error> {
-        if buf.len() > config::MAX_DIGEST_SIZE {
-            return Err(WriteError::new(
-                "DigestBuf",
-                WriteErrorKind::TooLarge {
-                    field: "buf.len()",
-                    max_size: 256,
-                    actual_size: buf.len(),
-                },
-            ));
-        }
-        let mut digest = DigestBuf::new(buf.len() as u8);
+        let size = DigestSize::try_from(buf.len())?;
+        let mut digest = DigestBuf::new(size);
         digest.as_mut().copy_from_slice(buf);
         Ok(digest)
     }
@@ -325,55 +344,74 @@ impl PartialEq for DigestBuf {
 
 impl Eq for DigestBuf {}
 
+#[derive(Debug)]
+pub struct SignatureTooLargeError;
+
+/// A checked size type that we can safely trust downstream without asserts
+/// Thanks for the idea Cliff!
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct SignatureSize(usize);
+
+impl From<SignatureSize> for usize {
+    fn from(size: SignatureSize) -> Self {
+        size.0
+    }
+}
+
+impl TryFrom<usize> for SignatureSize {
+    type Error = SignatureTooLargeError;
+    fn try_from(x: usize) -> Result<Self, Self::Error> {
+        if x <= config::MAX_SIGNATURE_SIZE {
+            Ok(Self(x))
+        } else {
+            Err(SignatureTooLargeError)
+        }
+    }
+}
+
 /// A buffer capable of storing signatures of unknown size at compile time.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub struct SignatureBuf {
-    size: u16,
+    size: SignatureSize,
     buf: [u8; config::MAX_SIGNATURE_SIZE],
 }
 
 impl SignatureBuf {
-    pub fn new(size: u16) -> SignatureBuf {
+    pub fn new(size: SignatureSize) -> SignatureBuf {
         SignatureBuf { size, buf: [0; config::MAX_SIGNATURE_SIZE] }
     }
 
-    pub fn read(size: u16, r: &mut Reader) -> Result<SignatureBuf, ReadError> {
+    pub fn read(
+        size: SignatureSize,
+        r: &mut Reader,
+    ) -> Result<SignatureBuf, ReadError> {
         let mut sig = SignatureBuf::new(size);
-        r.get_slice(size as usize, sig.as_mut())?;
+        r.get_slice(size.0, sig.as_mut())?;
         Ok(sig)
     }
 
     pub fn len(&self) -> usize {
-        self.size as usize
+        self.size.0
     }
 }
 
 impl AsRef<[u8]> for SignatureBuf {
     fn as_ref(&self) -> &[u8] {
-        &self.buf[..self.size as usize]
+        &self.buf[..self.size.0]
     }
 }
 
 impl AsMut<[u8]> for SignatureBuf {
     fn as_mut(&mut self) -> &mut [u8] {
-        &mut self.buf[..self.size as usize]
+        &mut self.buf[..self.size.0]
     }
 }
 
 impl TryFrom<&[u8]> for SignatureBuf {
-    type Error = WriteError;
+    type Error = SignatureTooLargeError;
     fn try_from(buf: &[u8]) -> Result<Self, Self::Error> {
-        if buf.len() > config::MAX_SIGNATURE_SIZE {
-            return Err(WriteError::new(
-                "SignatureBuf",
-                WriteErrorKind::TooLarge {
-                    field: "buf.len()",
-                    max_size: 256,
-                    actual_size: buf.len(),
-                },
-            ));
-        }
-        let mut digest = SignatureBuf::new(buf.len() as u16);
+        let size = SignatureSize::try_from(buf.len())?;
+        let mut digest = SignatureBuf::new(size);
         digest.as_mut().copy_from_slice(buf);
         Ok(digest)
     }
@@ -390,7 +428,7 @@ impl PartialEq for SignatureBuf {
 impl Eq for SignatureBuf {}
 
 /// A unique random value used for cryptographic purposes
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Nonce([u8; 32]);
 
 impl Nonce {
@@ -426,13 +464,13 @@ mod tests {
     /// The `new_with_magic` methods are useful for manually parsing serialized
     /// buffers and are available for testing only.
     impl DigestBuf {
-        pub fn new_with_magic(size: u8, magic: u8) -> DigestBuf {
+        pub fn new_with_magic(size: DigestSize, magic: u8) -> DigestBuf {
             DigestBuf { size, buf: [magic; config::MAX_DIGEST_SIZE] }
         }
     }
 
     impl SignatureBuf {
-        pub fn new_with_magic(size: u16, magic: u8) -> SignatureBuf {
+        pub fn new_with_magic(size: SignatureSize, magic: u8) -> SignatureBuf {
             SignatureBuf { size, buf: [magic; config::MAX_SIGNATURE_SIZE] }
         }
     }

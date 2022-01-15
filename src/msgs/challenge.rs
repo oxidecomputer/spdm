@@ -5,7 +5,9 @@
 use core::cmp::PartialEq;
 use core::convert::{TryFrom, TryInto};
 
-use super::common::{DigestBuf, Nonce, OpaqueData, SignatureBuf};
+use super::common::{
+    DigestBuf, DigestSize, Nonce, OpaqueData, SignatureBuf, SignatureSize,
+};
 use super::encoding::{
     ReadError, ReadErrorKind, Reader, WriteError, WriteErrorKind, Writer,
 };
@@ -142,21 +144,22 @@ impl ChallengeAuth {
         measurement_summary_digest: &[u8],
         opaque_data: OpaqueData,
         sig: &[u8],
-    ) -> Result<ChallengeAuth, WriteError> {
-        let cert_chain_hash = cert_chain_digest.try_into()?;
-        let measurement_summary_hash = measurement_summary_digest.try_into()?;
-        let signature = sig.try_into()?;
+    ) -> ChallengeAuth {
+        // Fail fast in case of a configuration error
+        let cc_hash = cert_chain_digest.try_into().unwrap();
+        let ms_hash = measurement_summary_digest.try_into().unwrap();
+        let signature = sig.try_into().unwrap();
 
-        Ok(ChallengeAuth {
+        ChallengeAuth {
             slot,
             slot_mask,
             use_mutual_auth,
-            cert_chain_hash,
+            cert_chain_hash: cc_hash,
             nonce,
-            measurement_summary_hash,
+            measurement_summary_hash: ms_hash,
             opaque_data,
             signature,
-        })
+        }
     }
 
     /// Deserialize the body of the ChallengeAuth message, given the digest_size
@@ -164,8 +167,8 @@ impl ChallengeAuth {
     /// steps of the protocol.
     pub fn parse_body(
         buf: &[u8],
-        digest_size: u8,
-        signature_size: u16,
+        digest_size: DigestSize,
+        signature_size: SignatureSize,
     ) -> Result<ChallengeAuth, ReadError> {
         let mut r = Reader::new(Self::NAME, buf);
         let slot = r.get_bits(4)?;
@@ -216,8 +219,8 @@ mod tests {
 
     #[test]
     fn round_trip_challenge_auth() {
-        let digest_size = 32;
-        let signature_size = 64;
+        let digest_size = DigestSize::try_from(32).unwrap();
+        let signature_size = SignatureSize::try_from(64).unwrap();
         let c = ChallengeAuth {
             slot: 0,
             use_mutual_auth: false,
@@ -233,8 +236,8 @@ mod tests {
         let _ = c.write(&mut buf).unwrap();
         let c2 = ChallengeAuth::parse_body(
             &buf[HEADER_SIZE..],
-            digest_size,
-            signature_size,
+            digest_size.try_into().unwrap(),
+            signature_size.try_into().unwrap(),
         )
         .unwrap();
 

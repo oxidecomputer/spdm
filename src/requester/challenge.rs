@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use core::convert::From;
+use core::convert::{From, TryFrom};
 
 use super::{expect, id_auth, RequesterError};
 use crate::config::MAX_CERT_CHAIN_SIZE;
@@ -12,7 +12,7 @@ use crate::crypto::{
 };
 use crate::msgs::{
     capabilities::{ReqFlags, RspFlags},
-    common::Nonce,
+    common::{DigestSize, Nonce, SignatureSize},
     Algorithms, CertificateChain, Challenge, ChallengeAuth,
     MeasurementHashType, Msg, VersionEntry, HEADER_SIZE,
 };
@@ -84,7 +84,7 @@ impl State {
         // Is there also a need to retrieve them during challenge-response?
         let measurement_hash_type = MeasurementHashType::None;
         let challenge = Challenge::new(self.cert_slot, measurement_hash_type);
-        self.nonce = Some(challenge.nonce);
+        self.nonce = Some(challenge.nonce.clone());
         let size = challenge.write(buf).map_err(|e| RequesterError::from(e))?;
         transcript.extend(&buf[..size])?;
         Ok(&buf[..size])
@@ -102,9 +102,13 @@ impl State {
         expect::<ChallengeAuth>(buf)?;
         let hash_algo = self.algorithms.base_hash_algo_selected;
 
-        let digest_size = hash_algo.get_digest_size();
-        let signature_size =
-            self.algorithms.base_asym_algo_selected.get_signature_size();
+        // This is a configuration error, so we want to unwrap and fail fast
+        let digest_size =
+            DigestSize::try_from(hash_algo.get_digest_size()).unwrap();
+        let signature_size = SignatureSize::try_from(
+            self.algorithms.base_asym_algo_selected.get_signature_size(),
+        )
+        .unwrap();
 
         let rsp = ChallengeAuth::parse_body(
             &buf[HEADER_SIZE..],
@@ -138,7 +142,7 @@ impl State {
 
         // Generate M2 as in the SPDM spec by extending the transcript with the
         // ChallengeAuth response without the signature.
-        let sig_start = buf.len() - signature_size as usize;
+        let sig_start = buf.len() - usize::from(signature_size);
         transcript.extend(&buf[..sig_start])?;
         let m2_hash = DigestImpl::hash(hash_algo, transcript.get());
 
@@ -153,7 +157,7 @@ impl State {
 
     fn verify_cert_chain_and_signature(
         &self,
-        digest_size: u8,
+        digest_size: DigestSize,
         m2_hash: &[u8],
         signature: &[u8],
         root_cert: &[u8],

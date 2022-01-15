@@ -2,14 +2,14 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use core::convert::From;
+use core::convert::{From, TryFrom};
 
 use super::{algorithms, challenge, expect, RequesterError};
 use crate::config::{MAX_CERT_CHAIN_SIZE, NUM_SLOTS};
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
 use crate::msgs::{
-    Algorithms, Certificate, Digests, GetCertificate, GetDigests, Msg,
-    VersionEntry, HEADER_SIZE,
+    common::DigestSize, Algorithms, Certificate, Digests, GetCertificate,
+    GetDigests, Msg, VersionEntry, HEADER_SIZE,
 };
 use crate::Transcript;
 
@@ -85,8 +85,10 @@ impl State {
         transcript: &mut Transcript,
     ) -> Result<(), RequesterError> {
         expect::<Digests>(buf)?;
-        let digest_size =
-            self.algorithms.base_hash_algo_selected.get_digest_size();
+        let digest_size = DigestSize::try_from(
+            self.algorithms.base_hash_algo_selected.get_digest_size(),
+        )
+        .unwrap();
         let digests = Digests::parse_body(digest_size, &buf[HEADER_SIZE..])?;
         self.digests = Some(digests);
         transcript.extend(buf)?;
