@@ -9,7 +9,7 @@ use core::convert::TryFrom;
 
 use crate::msgs::algorithms::BaseAsymAlgo;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Error {
     InvalidCert,
     ValidationFailed,

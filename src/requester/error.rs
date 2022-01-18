@@ -14,6 +14,8 @@ use crate::msgs::{
     BufferFullError, ParseHeaderError, ReadError, Version,
 };
 
+use super::challenge::ChallengeAuthError;
+
 /// A requester specific error returned from state machine methods
 #[derive(Debug, PartialEq)]
 pub enum RequesterError {
@@ -23,19 +25,22 @@ pub enum RequesterError {
     // Reading into a buffer failed because the buffer is full
     BufferFull,
 
-    // `got` is the code. TODO: Try to map this to a message name?
-    UnexpectedMsg { expected: &'static str, got: u8 },
+    // An unexpected message code was received in the header of a message
+    UnexpectedMsgCode {
+        expected: u8,
+        got: u8,
+    },
 
-    //
-    // Version related messages
-    //
-    NoSupportedVersions { received: Version },
+    /// The responder does not support the same versions as the requester
+    NoSupportedVersions {
+        received: Version,
+    },
 
     // The responder chose an algorithm that was not a requester option
     SelectedAlgorithmNotRequested,
 
     // The challenge auth response was invalid
-    BadChallengeAuth(&'static str),
+    ChallengeAuth(ChallengeAuthError),
 
     // A certificate could not be parsed properly
     ParseCert(ParseCertificateError),
@@ -148,5 +153,11 @@ impl From<ParseVersionError> for RequesterError {
 impl From<ParseCertificateChainError> for RequesterError {
     fn from(e: ParseCertificateChainError) -> Self {
         RequesterError::ParseCertChain(e)
+    }
+}
+
+impl From<ChallengeAuthError> for RequesterError {
+    fn from(e: ChallengeAuthError) -> Self {
+        RequesterError::ChallengeAuth(e)
     }
 }
