@@ -568,10 +568,10 @@ mod tests {
 
         let mut buf = [0u8; 1024];
         {
-            let mut w = Writer::new("OpaqueData", &mut buf);
+            let mut w = Writer::new(&mut buf);
             data.write(&mut w).unwrap();
         }
-        let mut r = Reader::new("OpaqueData", &mut buf);
+        let mut r = Reader::new(&mut buf);
         let data2 = OpaqueData::read(&mut r).unwrap();
         assert_eq!(data, data2);
     }
@@ -586,7 +586,7 @@ mod tests {
         };
 
         let mut buf = [0u8; 1024];
-        let mut w = Writer::new("OpaqueData", &mut buf);
+        let mut w = Writer::new(&mut buf);
         assert!(element.write(&mut w).is_err());
     }
 
@@ -601,14 +601,14 @@ mod tests {
 
         let mut buf = [0u8; 1024];
         {
-            let mut w = Writer::new("OpaqueData", &mut buf);
+            let mut w = Writer::new(&mut buf);
             element.write(&mut w).unwrap();
         }
 
         // Modify vendor_len to mismatch registry id
         buf[1] = 4;
 
-        let mut r = Reader::new("OpaqueData", &mut buf);
+        let mut r = Reader::new(&mut buf);
         assert!(OpaqueElement::read(&mut r).is_err());
     }
 }
