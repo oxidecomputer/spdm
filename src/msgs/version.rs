@@ -17,6 +17,8 @@ impl Msg for GetVersion {
 
     const SPDM_CODE: u8 = 0x84;
 
+    type WriteError = BufferFullError;
+
     fn write_body(&self, w: &mut Writer) -> Result<usize, BufferFullError> {
         w.put_reserved(2)
     }
@@ -80,6 +82,8 @@ impl Msg for Version {
     const SPDM_VERSION: u8 = 0x10;
 
     const SPDM_CODE: u8 = 0x04;
+
+    type WriteError = BufferFullError;
 
     fn write_body(&self, w: &mut Writer) -> Result<usize, BufferFullError> {
         // Reserved bytes

@@ -2,29 +2,58 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use core::fmt::{self, Display, Formatter};
-
-use crate::msgs::{self, ReadError, ReadErrorKind, WriteError};
+use crate::msgs::{
+    self,
+    algorithms::ParseNegotiateAlgorithmsError,
+    capabilities::{ParseGetCapabilitiesError, ParseRspCapabilityError},
+    certificates::WriteCertificateChainError,
+    challenge::{ParseChallengeError, WriteChallengeAuthError},
+    BufferFullError, ParseHeaderError, ReadError,
+};
 
 /// An error returned by a responder state
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub enum ResponderError {
-    Write(WriteError),
+    // Failed to parse a message header
+    ParseHeader,
+
+    // Reading an encoded message from a buffer failed
     Read(ReadError),
 
-    // `got` is the code. TODO: Try to map this to a message name?
-    UnexpectedMsg { expected: &'static str, got: u8 },
+    // Writing a message to a buffer failed because the buffer was full
+    BufferFull,
+
+    // We received an unexpected message type
+    UnexpectedMsgCode { expected: u8, got: u8 },
 
     // A challenge was sent with a slot that does not contain a cert
     InvalidSlot,
 
     // For some reason signing failed. This could be caused by a HW failure.
     SigningFailed,
+
+    // Failed to write a cert chain message
+    WriteCertChain(WriteCertificateChainError),
+
+    // Parsing a NegotiateAlgorithms message failed
+    ParseNegotiateAlgorithms(ParseNegotiateAlgorithmsError),
+
+    // Parsing a GetCapabilities message failed
+    ParseGetCapabilities(ParseGetCapabilitiesError),
+
+    // Parsing a capability from a string failed
+    ParseCapability,
+
+    // Parsing a Challenge message has failed
+    ParseChallenge(ParseChallengeError),
+
+    // Writing a ChallengeAuth message failed
+    WriteChallengeAuth(WriteChallengeAuthError),
 }
 
-impl From<WriteError> for ResponderError {
-    fn from(e: WriteError) -> Self {
-        ResponderError::Write(e)
+impl From<BufferFullError> for ResponderError {
+    fn from(_: BufferFullError) -> Self {
+        ResponderError::BufferFull
     }
 }
 
@@ -34,57 +63,98 @@ impl From<ReadError> for ResponderError {
     }
 }
 
-impl Display for ResponderError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            ResponderError::Write(e) => e.fmt(f),
-            ResponderError::Read(e) => e.fmt(f),
+impl From<WriteCertificateChainError> for ResponderError {
+    fn from(e: WriteCertificateChainError) -> Self {
+        ResponderError::WriteCertChain(e)
+    }
+}
 
-            // TODO: print message name and not just code
-            ResponderError::UnexpectedMsg { expected, got } => {
-                write!(
-                    f,
-                    "unexpected msg: (expected: {}, got code: {})",
-                    expected, got
-                )
-            }
+impl From<ParseHeaderError> for ResponderError {
+    fn from(_: ParseHeaderError) -> Self {
+        ResponderError::ParseHeader
+    }
+}
 
-            ResponderError::InvalidSlot => {
-                write!(f, "the requested slot does not contain a certificate")
-            }
-            ResponderError::SigningFailed => {
-                write!(f, "signing failed")
-            }
-        }
+impl From<ParseGetCapabilitiesError> for ResponderError {
+    fn from(e: ParseGetCapabilitiesError) -> Self {
+        ResponderError::ParseGetCapabilities(e)
+    }
+}
+
+impl From<ParseNegotiateAlgorithmsError> for ResponderError {
+    fn from(e: ParseNegotiateAlgorithmsError) -> Self {
+        ResponderError::ParseNegotiateAlgorithms(e)
+    }
+}
+
+impl From<ParseRspCapabilityError> for ResponderError {
+    fn from(_: ParseRspCapabilityError) -> Self {
+        ResponderError::ParseCapability
+    }
+}
+
+impl From<ParseChallengeError> for ResponderError {
+    fn from(e: ParseChallengeError) -> Self {
+        ResponderError::ParseChallenge(e)
+    }
+}
+
+impl From<WriteChallengeAuthError> for ResponderError {
+    fn from(e: WriteChallengeAuthError) -> Self {
+        ResponderError::WriteChallengeAuth(e)
     }
 }
 
 impl From<&ResponderError> for msgs::Error {
     fn from(err: &ResponderError) -> Self {
         match err {
-            ResponderError::Write(_) => msgs::Error::LargeResponse(0),
-            ResponderError::Read(ReadError { kind, .. }) => match kind {
-                ReadErrorKind::Header => msgs::Error::InvalidRequest,
-                ReadErrorKind::Empty => msgs::Error::RequestTooLarge,
-                ReadErrorKind::ReservedByteNotZero => {
-                    msgs::Error::InvalidRequest
-                }
-                ReadErrorKind::Unaligned => msgs::Error::Unspecified,
-                ReadErrorKind::TooManyBits => msgs::Error::Unspecified,
-                ReadErrorKind::TypeConversionFailed => msgs::Error::Unspecified,
-                ReadErrorKind::InvalidBitsSet => msgs::Error::InvalidRequest,
-                ReadErrorKind::TooManyBitsSet => msgs::Error::InvalidRequest,
-                ReadErrorKind::SpdmLimitReached => msgs::Error::InvalidRequest,
-                ReadErrorKind::ImplementationLimitReached => {
-                    msgs::Error::InvalidRequest
-                }
-                ReadErrorKind::UnexpectedValue => msgs::Error::InvalidRequest,
-            },
-            ResponderError::UnexpectedMsg { .. } => {
+            ResponderError::ParseHeader => msgs::Error::UnexpectedRequest,
+            ResponderError::BufferFull => msgs::Error::LargeResponse(0),
+            ResponderError::Read(e) => read_error_to_msgs_error(e),
+            ResponderError::UnexpectedMsgCode { .. } => {
                 msgs::Error::UnexpectedRequest
             }
-            ResponderError::InvalidSlot => msgs::Error::UnexpectedRequest,
+            ResponderError::InvalidSlot => msgs::Error::InvalidRequest,
             ResponderError::SigningFailed => msgs::Error::Unspecified,
+            ResponderError::WriteCertChain(_) => msgs::Error::LargeResponse(0),
+            ResponderError::ParseCapability => msgs::Error::Unspecified,
+            ResponderError::ParseGetCapabilities(
+                ParseGetCapabilitiesError::InvalidBitsSet,
+            ) => msgs::Error::InvalidRequest,
+            ResponderError::ParseGetCapabilities(
+                ParseGetCapabilitiesError::Read(e),
+            ) => read_error_to_msgs_error(e),
+            ResponderError::ParseNegotiateAlgorithms(
+                ParseNegotiateAlgorithmsError::Read(e),
+            ) => read_error_to_msgs_error(e),
+            ResponderError::ParseNegotiateAlgorithms(
+                ParseNegotiateAlgorithmsError::TooLarge,
+            ) => msgs::Error::RequestTooLarge,
+            ResponderError::ParseNegotiateAlgorithms(_) => {
+                msgs::Error::InvalidRequest
+            }
+            ResponderError::ParseChallenge(
+                ParseChallengeError::InvalidMeasurementHashType,
+            ) => msgs::Error::InvalidRequest,
+            ResponderError::ParseChallenge(ParseChallengeError::Read(e)) => {
+                read_error_to_msgs_error(e)
+            }
+            ResponderError::WriteChallengeAuth(
+                WriteChallengeAuthError::BufferFull,
+            ) => msgs::Error::ResponseTooLarge(0),
+            ResponderError::WriteChallengeAuth(_) => {
+                msgs::Error::InvalidRequest
+            }
         }
+    }
+}
+
+fn read_error_to_msgs_error(err: &ReadError) -> msgs::Error {
+    match err {
+        ReadError::BufferEmpty => msgs::Error::RequestTooLarge,
+        ReadError::ReservedByteNotZero => msgs::Error::InvalidRequest,
+        ReadError::Unaligned
+        | ReadError::TooManyBits
+        | ReadError::TypeConversionFailed => msgs::Error::Unspecified,
     }
 }

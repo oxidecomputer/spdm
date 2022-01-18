@@ -163,6 +163,8 @@ impl Msg for GetMeasurements {
     const SPDM_VERSION: u8 = 0x12;
     const SPDM_CODE: u8 = 0xE0;
 
+    type WriteError = WriteGetMeasurementsError;
+
     fn write_body(
         &self,
         w: &mut Writer,

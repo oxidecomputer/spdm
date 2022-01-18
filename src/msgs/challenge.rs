@@ -6,7 +6,8 @@ use core::cmp::PartialEq;
 use core::convert::{TryFrom, TryInto};
 
 use super::common::{
-    DigestBuf, DigestSize, Nonce, OpaqueData, SignatureBuf, SignatureSize,
+    DigestBuf, DigestSize, Nonce, OpaqueData, ParseOpaqueDataError,
+    SignatureBuf, SignatureSize, WriteOpaqueElementError,
 };
 use super::encoding::{BufferFullError, ReadError, Reader, Writer};
 use super::Msg;
@@ -39,7 +40,7 @@ impl TryFrom<u8> for MeasurementHashType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ParseChallengeError {
     InvalidMeasurementHashType,
     Read(ReadError),
@@ -76,6 +77,8 @@ impl Msg for Challenge {
     const SPDM_VERSION: u8 = 0x11;
     const SPDM_CODE: u8 = 0x83;
 
+    type WriteError = BufferFullError;
+
     fn write_body(&self, w: &mut Writer) -> Result<usize, BufferFullError> {
         w.put(self.slot)?;
         w.put(self.measurement_hash_type as u8)?;
@@ -93,11 +96,12 @@ impl Challenge {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum WriteChallengeAuthError {
     MaxSlotNumberExceeded,
     MaxOpaqueDataSizeExceeded,
     BufferFull,
+    WriteOpaqueElement(WriteOpaqueElementError),
 }
 
 impl From<BufferFullError> for WriteChallengeAuthError {
@@ -106,16 +110,29 @@ impl From<BufferFullError> for WriteChallengeAuthError {
     }
 }
 
-#[derive(Debug)]
+impl From<WriteOpaqueElementError> for WriteChallengeAuthError {
+    fn from(e: WriteOpaqueElementError) -> Self {
+        WriteChallengeAuthError::WriteOpaqueElement(e)
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub enum ParseChallengeAuthError {
     MaxSlotNumberExceeded,
     MaxOpaqueDataSizeExceeded,
+    ParseOpaqueData(ParseOpaqueDataError),
     Read(ReadError),
 }
 
 impl From<ReadError> for ParseChallengeAuthError {
     fn from(e: ReadError) -> Self {
         ParseChallengeAuthError::Read(e)
+    }
+}
+
+impl From<ParseOpaqueDataError> for ParseChallengeAuthError {
+    fn from(e: ParseOpaqueDataError) -> Self {
+        ParseChallengeAuthError::ParseOpaqueData(e)
     }
 }
 
@@ -138,6 +155,8 @@ impl Msg for ChallengeAuth {
     const NAME: &'static str = "CHALLENGE_AUTH";
     const SPDM_VERSION: u8 = 0x11;
     const SPDM_CODE: u8 = 0x03;
+
+    type WriteError = WriteChallengeAuthError;
 
     fn write_body(
         &self,

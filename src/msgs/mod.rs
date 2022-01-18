@@ -30,11 +30,14 @@ pub use certificates::{Certificate, CertificateChain, GetCertificate};
 pub use challenge::{Challenge, ChallengeAuth, MeasurementHashType};
 pub use common::{OpaqueData, OpaqueElement, VendorId, VendorRegistryId};
 pub use digest::{Digests, GetDigests};
-pub use encoding::{ReadError, ReadErrorKind, WriteError, WriteErrorKind};
+pub use encoding::{BufferFullError, ReadError};
 use encoding::{Reader, Writer};
 pub use error::Error;
 pub use measurements::GetMeasurements;
 pub use version::{GetVersion, Version, VersionEntry};
+
+#[derive(Debug, PartialEq)]
+pub struct ParseHeaderError;
 
 pub const HEADER_SIZE: usize = 2;
 
@@ -48,8 +51,11 @@ pub trait Msg {
     // The code of the message as in the SPDM spec.
     const SPDM_CODE: u8;
 
+    // The specific error used for the `write` methods
+    type WriteError: From<BufferFullError>;
+
     /// Write the body of the message, not including the header.
-    fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError>;
+    fn write_body(&self, w: &mut Writer) -> Result<usize, Self::WriteError>;
 
     /// Parse the 2 byte message header and ensure the version field is
     /// correct for the given message type.
@@ -59,7 +65,7 @@ pub trait Msg {
     /// Return an error if the version is wrong for a GetVersion message.
     ///
     /// Prerequisite buf >= 2 bytes
-    fn parse_header(buf: &[u8]) -> Result<bool, ReadError> {
+    fn parse_header(buf: &[u8]) -> Result<bool, ParseHeaderError> {
         assert!(buf.len() > 2);
         if buf[1] != Self::SPDM_CODE {
             Ok(false)
@@ -67,15 +73,15 @@ pub trait Msg {
             if buf[0] == Self::SPDM_VERSION {
                 Ok(true)
             } else {
-                Err(ReadError::new(Self::NAME, ReadErrorKind::Header))
+                Err(ParseHeaderError)
             }
         }
     }
 
     /// This provided method serializes the header and body of a message into
     /// `buf`.
-    fn write(&self, buf: &mut [u8]) -> Result<usize, WriteError> {
-        let mut w = Writer::new(Self::NAME, buf);
+    fn write(&self, buf: &mut [u8]) -> Result<usize, Self::WriteError> {
+        let mut w = Writer::new(buf);
         Self::write_header(&mut w)?;
         self.write_body(&mut w)
     }
@@ -88,7 +94,7 @@ pub trait Msg {
     /// many cases these bytes are reserved, and in others they are specific to the
     /// message type. For that reason we have the message serialize them in
     /// `write_body`.
-    fn write_header(w: &mut Writer) -> Result<usize, WriteError> {
+    fn write_header(w: &mut Writer) -> Result<usize, BufferFullError> {
         w.put(Self::SPDM_VERSION)?;
         w.put(Self::SPDM_CODE)
     }

@@ -26,6 +26,8 @@ impl Msg for GetDigests {
 
     const SPDM_CODE: u8 = 0x81;
 
+    type WriteError = BufferFullError;
+
     fn write_body(&self, w: &mut Writer) -> Result<usize, BufferFullError> {
         w.put_reserved(2)
     }
@@ -55,6 +57,8 @@ impl Msg for Digests {
     const SPDM_VERSION: u8 = 0x11;
 
     const SPDM_CODE: u8 = 0x01;
+
+    type WriteError = BufferFullError;
 
     fn write_body(&self, w: &mut Writer) -> Result<usize, BufferFullError> {
         w.put_reserved(1)?;

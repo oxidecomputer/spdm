@@ -2,13 +2,41 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use super::common::{VendorId, VendorRegistryId};
-use super::encoding::{ReadError, ReadErrorKind, Reader, WriteError, Writer};
+use super::common::{
+    ParseVendorIdError, ParseVendorRegistryIdError, VendorId, VendorRegistryId,
+};
+use super::encoding::{BufferFullError, ReadError, Reader, Writer};
 use super::Msg;
 
 use core::convert::TryFrom;
 
 const MAX_OPAQUE_ERROR_DATA_SIZE: usize = 32;
+
+#[derive(Debug, PartialEq)]
+pub enum ParseErrorError {
+    Read(ReadError),
+    InvalidErrorCode,
+    ParseVendorId(ParseVendorIdError),
+    ParseVendorRegistryId,
+}
+
+impl From<ReadError> for ParseErrorError {
+    fn from(e: ReadError) -> Self {
+        ParseErrorError::Read(e)
+    }
+}
+
+impl From<ParseVendorIdError> for ParseErrorError {
+    fn from(e: ParseVendorIdError) -> Self {
+        ParseErrorError::ParseVendorId(e)
+    }
+}
+
+impl From<ParseVendorRegistryIdError> for ParseErrorError {
+    fn from(_: ParseVendorRegistryIdError) -> Self {
+        ParseErrorError::ParseVendorRegistryId
+    }
+}
 
 // This is a SPDM Error response message
 #[derive(Debug, Clone, PartialEq)]
@@ -66,7 +94,9 @@ impl Msg for Error {
     const SPDM_VERSION: u8 = 0x12;
     const SPDM_CODE: u8 = 0x7F;
 
-    fn write_body(&self, w: &mut Writer) -> Result<usize, WriteError> {
+    type WriteError = BufferFullError;
+
+    fn write_body(&self, w: &mut Writer) -> Result<usize, BufferFullError> {
         match self {
             Error::InvalidRequest => {
                 w.put(0x1)?;
@@ -158,8 +188,8 @@ impl Msg for Error {
 }
 
 impl Error {
-    pub fn parse_body(buf: &[u8]) -> Result<Error, ReadError> {
-        let mut r = Reader::new(Self::NAME, buf);
+    pub fn parse_body(buf: &[u8]) -> Result<Error, ParseErrorError> {
+        let mut r = Reader::new(buf);
         let code = r.get_byte()?;
         let data = r.get_byte()?;
 
@@ -215,10 +245,7 @@ impl Error {
                 )
             }
             _ => {
-                return Err(ReadError::new(
-                    "ERROR",
-                    ReadErrorKind::UnexpectedValue,
-                ))
+                return Err(ParseErrorError::InvalidErrorCode);
             }
         };
         Ok(msg)
@@ -264,11 +291,8 @@ mod tests {
         assert_eq!(7, size);
         assert_eq!(msg, Error::parse_body(&buf[2..]).unwrap());
 
-        // Invalid VendorId length triggers UnexpectedValue error
+        // Invalid VendorId length triggers error
         buf[4] = 6;
-        assert_eq!(
-            Err(ReadError::new("ERROR", ReadErrorKind::UnexpectedValue)),
-            Error::parse_body(&buf[2..])
-        );
+        assert!(Error::parse_body(&buf[2..]).is_err());
     }
 }

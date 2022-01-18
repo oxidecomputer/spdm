@@ -30,6 +30,8 @@ impl Msg for GetCertificate {
 
     const SPDM_CODE: u8 = 0x82;
 
+    type WriteError = BufferFullError;
+
     fn write_body(&self, w: &mut Writer) -> Result<usize, BufferFullError> {
         w.put(self.slot)?;
         w.put_reserved(1)?;
@@ -66,6 +68,8 @@ impl Msg for Certificate {
 
     const SPDM_CODE: u8 = 0x02;
 
+    type WriteError = BufferFullError;
+
     fn write_body(&self, w: &mut Writer) -> Result<usize, BufferFullError> {
         w.put(self.slot)?;
         w.put_reserved(1)?;
@@ -75,7 +79,7 @@ impl Msg for Certificate {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ParseCertificateError {
     TooLarge,
     Read(ReadError),
@@ -142,7 +146,7 @@ impl<'a> Eq for CertificateChain<'a> {}
 #[derive(Debug)]
 pub struct MaxCertChainDepthExceededError;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum WriteCertificateChainError {
     MaxSizeExceeded,
     BufferFull,
@@ -154,7 +158,7 @@ impl From<BufferFullError> for WriteCertificateChainError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ParseCertificateChainError {
     BadDerEncoding,
     LengthMismatch,

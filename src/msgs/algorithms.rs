@@ -431,6 +431,8 @@ impl Msg for NegotiateAlgorithms {
 
     const SPDM_CODE: u8 = 0xE3;
 
+    type WriteError = BufferFullError;
+
     fn write_body(&self, w: &mut Writer) -> Result<usize, BufferFullError> {
         w.put(self.num_algorithm_requests)?;
         w.put_reserved(1)?;
@@ -605,6 +607,8 @@ impl Msg for Algorithms {
     const SPDM_VERSION: u8 = 0x11;
 
     const SPDM_CODE: u8 = 0x63;
+
+    type WriteError = BufferFullError;
 
     fn write_body(&self, w: &mut Writer) -> Result<usize, BufferFullError> {
         w.put(self.num_algorithm_responses)?;

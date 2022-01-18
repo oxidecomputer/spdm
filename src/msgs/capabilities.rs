@@ -85,6 +85,8 @@ impl Msg for GetCapabilities {
 
     const SPDM_CODE: u8 = 0xE1;
 
+    type WriteError = BufferFullError;
+
     fn write_body(&self, w: &mut Writer) -> Result<usize, BufferFullError> {
         w.put_reserved(3)?;
         w.put(self.ct_exponent)?;
@@ -190,6 +192,8 @@ impl Msg for Capabilities {
     const SPDM_VERSION: u8 = 0x11;
 
     const SPDM_CODE: u8 = 0x61;
+
+    type WriteError = BufferFullError;
 
     fn write_body(&self, w: &mut Writer) -> Result<usize, BufferFullError> {
         w.put_reserved(3)?;
