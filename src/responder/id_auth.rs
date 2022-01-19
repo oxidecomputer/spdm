@@ -12,7 +12,7 @@ use crate::msgs::{
     common::DigestBuf,
     encoding::Writer,
     Algorithms, Certificate, CertificateChain, Digests, GetCertificate,
-    GetDigests, Msg, ReadError, ReadErrorKind, HEADER_SIZE,
+    GetDigests, Msg, HEADER_SIZE,
 };
 use crate::{reset_on_get_version, Transcript};
 
@@ -84,11 +84,7 @@ impl State {
     ) -> Result<(usize, AllStates), ResponderError> {
         let get_cert = GetCertificate::parse_body(&req[HEADER_SIZE..])?;
         if get_cert.slot as usize >= NUM_SLOTS {
-            return Err(ReadError::new(
-                GetCertificate::NAME,
-                ReadErrorKind::ImplementationLimitReached,
-            )
-            .into());
+            return Err(ResponderError::InvalidSlot);
         }
 
         // TODO: Handle cert chains larger than response buffer (i.e. send
@@ -96,7 +92,7 @@ impl State {
         let mut cert_chain = [0u8; MAX_CERT_CHAIN_SIZE];
         let mut portion_length: u16 = 0;
         if let Some(chain) = &cert_chains[get_cert.slot as usize] {
-            let mut w = Writer::new("CERTIFICATE_CHAIN", &mut cert_chain);
+            let mut w = Writer::new(&mut cert_chain);
             portion_length = chain.write(&mut w)? as u16;
         }
 
@@ -143,7 +139,7 @@ impl State {
         let mut buf = [0u8; MAX_CERT_CHAIN_SIZE];
         for i in 0..NUM_SLOTS {
             if let Some(cert_chain) = &cert_chains[i] {
-                let mut w = Writer::new("CERTIFICATE_CHAIN", &mut buf);
+                let mut w = Writer::new(&mut buf);
                 let size = cert_chain.write(&mut w)?;
                 let digest = DigestImpl::hash(
                     self.algorithms.base_hash_algo_selected,

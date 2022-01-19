@@ -236,8 +236,8 @@ macro_rules! reset_on_get_version {
 pub fn expect<T: Msg>(buf: &[u8]) -> Result<(), ResponderError> {
     match T::parse_header(buf) {
         Ok(true) => Ok(()),
-        Ok(false) => Err(ResponderError::UnexpectedMsg {
-            expected: T::NAME,
+        Ok(false) => Err(ResponderError::UnexpectedMsgCode {
+            expected: T::SPDM_CODE,
             got: buf[0],
         }),
         Err(e) => Err(e.into()),

@@ -18,8 +18,8 @@ impl State {
     ) -> Result<(usize, AllStates), ResponderError> {
         match GetVersion::parse_header(req) {
             Ok(true) => self.handle_get_version(req, rsp, transcript),
-            Ok(false) => Err(ResponderError::UnexpectedMsg {
-                expected: GetVersion::NAME,
+            Ok(false) => Err(ResponderError::UnexpectedMsgCode {
+                expected: GetVersion::SPDM_CODE,
                 got: req[0],
             }),
             Err(e) => Err(e.into()),

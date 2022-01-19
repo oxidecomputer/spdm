@@ -4,13 +4,29 @@
 
 //! Common types used in other messages
 
-use super::{
-    ReadError, ReadErrorKind, Reader, WriteError, WriteErrorKind, Writer,
-};
+use super::{BufferFullError, ReadError, Reader, Writer};
 use crate::config;
 
-use core::convert::{TryFrom, TryInto};
+use core::convert::{From, TryFrom, TryInto};
 use rand::{rngs::OsRng, RngCore};
+
+#[derive(Debug, PartialEq)]
+pub enum ParseOpaqueDataError {
+    Read(ReadError),
+    ParseOpaqueElement(ParseOpaqueElementError),
+}
+
+impl From<ReadError> for ParseOpaqueDataError {
+    fn from(e: ReadError) -> Self {
+        ParseOpaqueDataError::Read(e)
+    }
+}
+
+impl From<ParseOpaqueElementError> for ParseOpaqueDataError {
+    fn from(e: ParseOpaqueElementError) -> Self {
+        ParseOpaqueDataError::ParseOpaqueElement(e)
+    }
+}
 
 /// General opaque data format used in other messages.
 ///
@@ -28,7 +44,7 @@ impl OpaqueData {
             .fold(0, |acc, e| acc + e.serialized_size())
     }
 
-    pub fn write(&self, w: &mut Writer) -> Result<(), WriteError> {
+    pub fn write(&self, w: &mut Writer) -> Result<(), WriteOpaqueElementError> {
         w.put(self.total_elements)?;
         w.put_reserved(3)?;
         for element in &self.elements[..self.total_elements as usize] {
@@ -37,7 +53,7 @@ impl OpaqueData {
         Ok(())
     }
 
-    pub fn read(r: &mut Reader) -> Result<OpaqueData, ReadError> {
+    pub fn read(r: &mut Reader) -> Result<OpaqueData, ParseOpaqueDataError> {
         let total_elements = r.get_byte()?;
         r.skip_reserved(3)?;
         let mut elements =
@@ -46,6 +62,49 @@ impl OpaqueData {
             elements[i] = OpaqueElement::read(r)?;
         }
         Ok(OpaqueData { total_elements, elements })
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum WriteOpaqueElementError {
+    BufferFull,
+
+    // The vendor Id does not match the registry format
+    InvalidVendorId,
+}
+
+impl From<BufferFullError> for WriteOpaqueElementError {
+    fn from(_: BufferFullError) -> Self {
+        WriteOpaqueElementError::BufferFull
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ParseOpaqueElementError {
+    Read(ReadError),
+
+    // The vendor Id does not match the registry format
+    InvalidVendorId,
+
+    ParseVendorRegistryId,
+    ParseVendorId(ParseVendorIdError),
+}
+
+impl From<ReadError> for ParseOpaqueElementError {
+    fn from(e: ReadError) -> Self {
+        ParseOpaqueElementError::Read(e)
+    }
+}
+
+impl From<ParseVendorIdError> for ParseOpaqueElementError {
+    fn from(e: ParseVendorIdError) -> Self {
+        ParseOpaqueElementError::ParseVendorId(e)
+    }
+}
+
+impl From<ParseVendorRegistryIdError> for ParseOpaqueElementError {
+    fn from(_: ParseVendorRegistryIdError) -> Self {
+        ParseOpaqueElementError::ParseVendorRegistryId
     }
 }
 
@@ -105,7 +164,7 @@ impl OpaqueElement {
         }
     }
 
-    pub fn write(&self, w: &mut Writer) -> Result<(), WriteError> {
+    pub fn write(&self, w: &mut Writer) -> Result<(), WriteOpaqueElementError> {
         w.put(self.registry_id as u8)?;
         let vendor_len = self.vendor_id.write(w)? as usize;
 
@@ -113,12 +172,7 @@ impl OpaqueElement {
             vendor_len as u8,
             self.registry_id,
         )
-        .map_err(|_| {
-            WriteError::new(
-                "OpaqueElement",
-                WriteErrorKind::UnexpectedValue("vendor_id"),
-            )
-        })?;
+        .map_err(|_| WriteOpaqueElementError::InvalidVendorId)?;
 
         w.put_u16(self.data_len)?;
         w.extend(&self.data[..self.data_len as usize])?;
@@ -129,7 +183,9 @@ impl OpaqueElement {
         Ok(())
     }
 
-    pub fn read(r: &mut Reader) -> Result<OpaqueElement, ReadError> {
+    pub fn read(
+        r: &mut Reader,
+    ) -> Result<OpaqueElement, ParseOpaqueElementError> {
         let registry_id = r.get_byte()?.try_into()?;
         let vendor_id_len = r.get_byte()?;
         ensure_vendor_id_len_matches_registry_id(vendor_id_len, registry_id)?;
@@ -149,11 +205,25 @@ impl OpaqueElement {
 fn ensure_vendor_id_len_matches_registry_id(
     vendor_id_len: u8,
     registry_id: VendorRegistryId,
-) -> Result<(), ReadError> {
+) -> Result<(), ParseOpaqueElementError> {
     if vendor_id_len == registry_id.vendor_id_len() {
         Ok(())
     } else {
-        Err(ReadError::new("OpaqueElement", ReadErrorKind::UnexpectedValue))
+        Err(ParseOpaqueElementError::InvalidVendorId)
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ParseVendorIdError {
+    Read(ReadError),
+
+    // The encoded vendor id length is invalid
+    InvalidLen,
+}
+
+impl From<ReadError> for ParseVendorIdError {
+    fn from(e: ReadError) -> Self {
+        ParseVendorIdError::Read(e)
     }
 }
 
@@ -167,7 +237,7 @@ pub enum VendorId {
 
 impl VendorId {
     // Return the length of the vendor_id on success
-    pub fn write(&self, w: &mut Writer) -> Result<u8, WriteError> {
+    pub fn write(&self, w: &mut Writer) -> Result<u8, BufferFullError> {
         let vendor_len = match self {
             VendorId::Empty => {
                 w.put(0)?;
@@ -190,21 +260,21 @@ impl VendorId {
     pub fn read(
         r: &mut Reader,
         vendor_id_len: u8,
-    ) -> Result<VendorId, ReadError> {
+    ) -> Result<VendorId, ParseVendorIdError> {
         let id = match vendor_id_len {
             0 => VendorId::Empty,
             2 => VendorId::U16(r.get_u16()?),
             4 => VendorId::U32(r.get_u32()?),
             _ => {
-                return Err(ReadError::new(
-                    "ERROR",
-                    ReadErrorKind::UnexpectedValue,
-                ))
+                return Err(ParseVendorIdError::InvalidLen);
             }
         };
         Ok(id)
     }
 }
+
+#[derive(Debug, PartialEq)]
+pub struct ParseVendorRegistryIdError;
 
 /// Table 50 from spec 1.2.0a
 #[repr(u8)]
@@ -222,7 +292,7 @@ pub enum VendorRegistryId {
 }
 
 impl TryFrom<u8> for VendorRegistryId {
-    type Error = ReadError;
+    type Error = ParseVendorRegistryIdError;
     fn try_from(val: u8) -> Result<Self, Self::Error> {
         let id = match val {
             0 => VendorRegistryId::Dmtf,
@@ -235,10 +305,7 @@ impl TryFrom<u8> for VendorRegistryId {
             7 => VendorRegistryId::Cxl,
             8 => VendorRegistryId::Jedec,
             _ => {
-                return Err(ReadError::new(
-                    "ERROR",
-                    ReadErrorKind::UnexpectedValue,
-                ));
+                return Err(ParseVendorRegistryIdError);
             }
         };
         Ok(id)
@@ -501,10 +568,10 @@ mod tests {
 
         let mut buf = [0u8; 1024];
         {
-            let mut w = Writer::new("OpaqueData", &mut buf);
+            let mut w = Writer::new(&mut buf);
             data.write(&mut w).unwrap();
         }
-        let mut r = Reader::new("OpaqueData", &mut buf);
+        let mut r = Reader::new(&mut buf);
         let data2 = OpaqueData::read(&mut r).unwrap();
         assert_eq!(data, data2);
     }
@@ -519,7 +586,7 @@ mod tests {
         };
 
         let mut buf = [0u8; 1024];
-        let mut w = Writer::new("OpaqueData", &mut buf);
+        let mut w = Writer::new(&mut buf);
         assert!(element.write(&mut w).is_err());
     }
 
@@ -534,14 +601,14 @@ mod tests {
 
         let mut buf = [0u8; 1024];
         {
-            let mut w = Writer::new("OpaqueData", &mut buf);
+            let mut w = Writer::new(&mut buf);
             element.write(&mut w).unwrap();
         }
 
         // Modify vendor_len to mismatch registry id
         buf[1] = 4;
 
-        let mut r = Reader::new("OpaqueData", &mut buf);
+        let mut r = Reader::new(&mut buf);
         assert!(OpaqueElement::read(&mut r).is_err());
     }
 }
