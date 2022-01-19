@@ -25,7 +25,7 @@ pub enum RequesterError {
     SelectedAlgorithmNotRequested,
 
     // The challenge auth response was invalid
-    BadChallengeAuth,
+    BadChallengeAuth(&'static str),
 
     // A certificate could not be parsed properly
     InvalidCert,
@@ -76,8 +76,8 @@ impl Display for RequesterError {
 requester does not support"
                 )
             }
-            RequesterError::BadChallengeAuth => {
-                write!(f, "challenge authentication failed")
+            RequesterError::BadChallengeAuth(s) => {
+                write!(f, "challenge authentication failed: {}", s)
             }
             RequesterError::InvalidCert => {
                 write!(f, "invalid certificate")

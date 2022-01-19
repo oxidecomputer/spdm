@@ -2,10 +2,12 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+use super::common::{DigestSize, SignatureSize};
 use super::encoding::{ReadError, ReadErrorKind, Reader, WriteError, Writer};
 use super::Msg;
 
 use bitflags::bitflags;
+use core::convert::TryFrom;
 use core::str::FromStr;
 
 bitflags! {
@@ -26,9 +28,9 @@ bitflags! {
 
 impl BaseAsymAlgo {
     // The signature size in bytes of the "Raw" or "Fixed" signature.
-    pub fn get_signature_size(&self) -> usize {
+    pub fn get_signature_size(&self) -> SignatureSize {
         use BaseAsymAlgo as A;
-        match *self {
+        SignatureSize::try_from(match *self {
             A::RSASSA_2048 | A::RSAPSS_2048 => 256,
             A::RSASSA_3072 | A::RSAPSS_3072 => 384,
             A::ECDSA_ECC_NIST_P256 => 64,
@@ -36,7 +38,8 @@ impl BaseAsymAlgo {
             A::ECDSA_ECC_NIST_P384 => 96,
             A::ECDSA_ECC_NIST_P521 => 132,
             _ => unreachable!(),
-        }
+        })
+        .unwrap()
     }
 }
 
@@ -79,14 +82,15 @@ bitflags! {
 
 impl BaseHashAlgo {
     /// The size of a digest in bytes
-    pub fn get_digest_size(&self) -> u8 {
+    pub fn get_digest_size(&self) -> DigestSize {
         use BaseHashAlgo as H;
-        match *self {
+        DigestSize::try_from(match *self {
             H::SHA_256 | H::SHA3_256 => 32,
             H::SHA_384 | H::SHA3_384 => 48,
             H::SHA_512 | H::SHA3_512 => 64,
             _ => unreachable!(),
-        }
+        })
+        .unwrap()
     }
 }
 
@@ -289,7 +293,7 @@ impl AlgorithmRequest {
     ) -> Result<AlgorithmRequest, ReadError> {
         match r.get_byte()? {
             DheAlgorithm::TYPE => {
-                let ext_count = r.get_bits(4)?;
+                let ext_count = r.get_bits(4)? as usize;
                 let fixed_count = r.get_bits(4)?;
                 if fixed_count != DheAlgorithm::FIXED_ALG_COUNT {
                     return Err(ReadError::new(
@@ -307,7 +311,7 @@ impl AlgorithmRequest {
             }
 
             AeadAlgorithm::TYPE => {
-                let ext_count = r.get_bits(4)?;
+                let ext_count = r.get_bits(4)? as usize;
                 let fixed_count = r.get_bits(4)?;
                 if fixed_count != AeadAlgorithm::FIXED_ALG_COUNT {
                     return Err(ReadError::new(
@@ -325,7 +329,7 @@ impl AlgorithmRequest {
             }
 
             ReqBaseAsymAlgorithm::TYPE => {
-                let ext_count = r.get_bits(4)?;
+                let ext_count = r.get_bits(4)? as usize;
                 let fixed_count = r.get_bits(4)?;
                 if fixed_count != ReqBaseAsymAlgorithm::FIXED_ALG_COUNT {
                     return Err(ReadError::new(
@@ -349,7 +353,7 @@ impl AlgorithmRequest {
             }
 
             KeyScheduleAlgorithm::TYPE => {
-                let ext_count = r.get_bits(4)?;
+                let ext_count = r.get_bits(4)? as usize;
                 let fixed_count = r.get_bits(4)?;
                 if fixed_count != KeyScheduleAlgorithm::FIXED_ALG_COUNT {
                     return Err(ReadError::new(
@@ -463,8 +467,8 @@ impl NegotiateAlgorithms {
         // A responder will never select these algorithms, as they are not
         // currently supported. However, the data must still be properly skipped
         // over.
-        let ext_asym_count = r.get_byte()?;
-        let ext_hash_count = r.get_byte()?;
+        let ext_asym_count = r.get_byte()? as usize;
+        let ext_hash_count = r.get_byte()? as usize;
 
         r.skip_reserved(2)?;
 

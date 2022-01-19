@@ -6,17 +6,16 @@ use core::convert::From;
 
 use super::{expect, id_auth, AllStates, ResponderError};
 
-use crate::config::{
-    MAX_CERT_CHAIN_SIZE, MAX_DIGEST_SIZE, MAX_SIGNATURE_SIZE, NUM_SLOTS,
-};
+use crate::config::{MAX_CERT_CHAIN_SIZE, NUM_SLOTS};
 use crate::crypto::{
     digest::{Digest, DigestImpl},
     FilledSlot, Signer,
 };
-use crate::msgs::capabilities::{ReqFlags, RspFlags};
 use crate::msgs::{
-    challenge::nonce, encoding::Writer, Algorithms, Challenge, ChallengeAuth,
-    Msg, HEADER_SIZE,
+    capabilities::{ReqFlags, RspFlags},
+    common::{DigestBuf, Nonce, SignatureBuf},
+    encoding::Writer,
+    Algorithms, Challenge, ChallengeAuth, Msg, OpaqueData, HEADER_SIZE,
 };
 use crate::{reset_on_get_version, Transcript};
 
@@ -84,7 +83,7 @@ impl State {
                 && self.responder_cap.contains(RspFlags::MUT_AUTH_CAP);
 
         // TODO: Actually return measurement hashes if requested
-        let measurement_summary_hash = [0u8; MAX_DIGEST_SIZE];
+        let measurement_summary_hash = DigestBuf::new(digest_size);
 
         transcript.extend(req)?;
 
@@ -95,22 +94,22 @@ impl State {
         // signature, serialize, extend the transcript, construct the real
         // signature, and overwrite the dummy signature in the serialized
         // message.
-        let dummy_sig = [0u8; MAX_SIGNATURE_SIZE];
+        let dummy_sig = SignatureBuf::new(signature_size);
 
         let auth = ChallengeAuth::new(
             req_msg.slot,
             id_auth::create_slot_mask(slots),
             use_mutual_auth,
             cert_chain_digest.as_ref(),
-            nonce(),
-            &measurement_summary_hash[..digest_size as usize],
-            &[],
-            &dummy_sig[..signature_size],
+            Nonce::new(),
+            measurement_summary_hash.as_ref(),
+            OpaqueData::default(),
+            dummy_sig.as_ref(),
         );
 
         let size = auth.write(rsp)?;
 
-        let sig_start = size - signature_size;
+        let sig_start = size - usize::from(signature_size);
         transcript.extend(&rsp[..sig_start])?;
 
         let m1_hash = DigestImpl::hash(

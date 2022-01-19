@@ -43,6 +43,8 @@ pub struct SpdmConfig {
     pub transcript: TranscriptConfig,
     pub capabilities: Vec<String>,
     pub algorithms: AlgorithmsConfig,
+    pub measurement: MeasurementConfig,
+    pub opaque_data: OpaqueDataConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -77,6 +79,20 @@ pub struct TranscriptConfig {
 pub struct AlgorithmsConfig {
     pub asymmetric_signing: Vec<String>,
     pub hash: Vec<String>,
+}
+
+// TODO: Validation
+#[derive(Debug, Deserialize)]
+pub struct MeasurementConfig {
+    pub max_blocks: usize,
+    pub max_size: usize,
+}
+
+// TODO: Validation
+#[derive(Debug, Deserialize)]
+pub struct OpaqueDataConfig {
+    pub max_elements: usize,
+    pub max_element_data_size: usize,
 }
 
 // Return the maximum hash size if all algorithms are supported, otherwise
@@ -162,7 +178,6 @@ pub fn gen_config(input: SpdmConfig) -> Result<String> {
         max_signature_size(&input.algorithms.asymmetric_signing)?;
     input.cert_chains.validate()?;
     validate_capabilities(&input.capabilities)?;
-    let opaque_data_size = 0;
     let params = [
         input.cert_chains.num_slots.to_string(),
         input.cert_chains.buf_size.to_string(),
@@ -170,7 +185,10 @@ pub fn gen_config(input: SpdmConfig) -> Result<String> {
         input.transcript.buf_size.to_string(),
         max_hash_size.to_string(),
         max_signature_size.to_string(),
-        opaque_data_size.to_string(),
+        input.opaque_data.max_element_data_size.to_string(),
+        input.opaque_data.max_elements.to_string(),
+        input.measurement.max_blocks.to_string(),
+        input.measurement.max_size.to_string(),
         format!("{:?}", input.capabilities),
         format!("{:?}", input.algorithms.asymmetric_signing),
         format!("{:?}", input.algorithms.hash),

@@ -10,8 +10,9 @@ use crate::crypto::{
     digest::{Digest, DigestImpl},
     pki::{new_end_entity_cert, EndEntityCert},
 };
-use crate::msgs::capabilities::{ReqFlags, RspFlags};
 use crate::msgs::{
+    capabilities::{ReqFlags, RspFlags},
+    common::{DigestSize, Nonce},
     Algorithms, CertificateChain, Challenge, ChallengeAuth,
     MeasurementHashType, Msg, VersionEntry, HEADER_SIZE,
 };
@@ -22,14 +23,17 @@ use crate::Transcript;
 // need *some* valid time. Furthermore, during early boot we will not have
 // access to a trusted source of time.
 //
-// An alternative would be to disable the time checck in a patched version of
-//  WebPKI.
+// An alternative would be to disable the time check in a patched version of
+// WebPKI.
 //
 // This may not work for all consumers of this library.
 // Tracked in https://github.com/oxidecomputer/spdm/issues/31
 //
 // December 1, 2021 00:00:00 GMT
 const UNIX_TIME: u64 = 1638316800;
+
+// A provisioned certificate does not need to be retrieved
+const PROVISIONED_MASK: u8 = 0x0F;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Transition {
@@ -49,7 +53,7 @@ pub struct State {
     pub cert_slot: u8,
     pub cert_chain: [u8; MAX_CERT_CHAIN_SIZE],
     pub cert_chain_size: u16,
-    pub nonce: [u8; 32],
+    pub nonce: Option<Nonce>,
 }
 
 impl From<id_auth::State> for State {
@@ -64,7 +68,7 @@ impl From<id_auth::State> for State {
             cert_slot: s.cert_chain.as_ref().unwrap().slot,
             cert_chain: s.cert_chain.as_ref().unwrap().cert_chain,
             cert_chain_size: s.cert_chain.unwrap().portion_length,
-            nonce: [0u8; 32],
+            nonce: None,
         }
     }
 }
@@ -80,7 +84,7 @@ impl State {
         // Is there also a need to retrieve them during challenge-response?
         let measurement_hash_type = MeasurementHashType::None;
         let challenge = Challenge::new(self.cert_slot, measurement_hash_type);
-        self.nonce = challenge.nonce;
+        self.nonce = Some(challenge.nonce.clone());
         let size = challenge.write(buf).map_err(|e| RequesterError::from(e))?;
         transcript.extend(&buf[..size])?;
         Ok(&buf[..size])
@@ -97,21 +101,25 @@ impl State {
     ) -> Result<Transition, RequesterError> {
         expect::<ChallengeAuth>(buf)?;
         let hash_algo = self.algorithms.base_hash_algo_selected;
-
         let digest_size = hash_algo.get_digest_size();
         let signature_size =
             self.algorithms.base_asym_algo_selected.get_signature_size();
+
         let rsp = ChallengeAuth::parse_body(
             &buf[HEADER_SIZE..],
             digest_size,
             signature_size,
         )?;
+
         if rsp.slot != self.cert_slot {
-            return Err(RequesterError::BadChallengeAuth);
+            return Err(RequesterError::BadChallengeAuth("incorrect slot"));
         }
-        // Provisioned certs don't need retrieval
-        if (rsp.slot != 0x0F) && (rsp.slot_mask != (1 << rsp.slot)) {
-            return Err(RequesterError::BadChallengeAuth);
+
+        // A cert is not provisioned and it's not included in the slot mask
+        if (rsp.slot != PROVISIONED_MASK)
+            && ((rsp.slot_mask & (1 << rsp.slot)) == 0)
+        {
+            return Err(RequesterError::BadChallengeAuth("slot not in mask"));
         }
 
         // TODO: Handle pre-provisioned certs
@@ -120,8 +128,8 @@ impl State {
             &self.cert_chain[..self.cert_chain_size as usize],
         );
 
-        if rsp.cert_chain_hash() != digest.as_ref() {
-            return Err(RequesterError::BadChallengeAuth);
+        if rsp.cert_chain_hash.as_ref() != digest.as_ref() {
+            return Err(RequesterError::BadChallengeAuth("digest mismatch"));
         }
 
         // TODO: Do something with returned measurements
@@ -129,14 +137,14 @@ impl State {
 
         // Generate M2 as in the SPDM spec by extending the transcript with the
         // ChallengeAuth response without the signature.
-        let sig_start = buf.len() - signature_size;
+        let sig_start = buf.len() - usize::from(signature_size);
         transcript.extend(&buf[..sig_start])?;
         let m2_hash = DigestImpl::hash(hash_algo, transcript.get());
 
         self.verify_cert_chain_and_signature(
             digest_size,
             m2_hash.as_ref(),
-            rsp.signature(),
+            rsp.signature.as_ref(),
             root_cert,
             UNIX_TIME,
         )
@@ -144,7 +152,7 @@ impl State {
 
     fn verify_cert_chain_and_signature(
         &self,
-        digest_size: u8,
+        digest_size: DigestSize,
         m2_hash: &[u8],
         signature: &[u8],
         root_cert: &[u8],
@@ -167,7 +175,7 @@ impl State {
             m2_hash,
             signature,
         ) {
-            return Err(RequesterError::BadChallengeAuth);
+            return Err(RequesterError::BadChallengeAuth("bad signature"));
         }
 
         Ok(Transition::Placeholder)

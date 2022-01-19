@@ -2,6 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+use super::common::{VendorId, VendorRegistryId};
 use super::encoding::{ReadError, ReadErrorKind, Reader, WriteError, Writer};
 use super::Msg;
 
@@ -31,51 +32,6 @@ pub enum Error {
     ResponseNotReady(ResponseNotReady),
     RequestResynch,
     VendorDefined(VendorRegistryId, VendorDefined),
-}
-
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum VendorRegistryId {
-    Dmtf = 0x0,
-    Tcg = 0x1,
-    Usb = 0x2,
-    PciSig = 0x3,
-    Iana = 0x4,
-    HDBaseT = 0x5,
-    Mipi = 0x6,
-    Cxl = 0x7,
-    Jedec = 0x8,
-}
-
-impl TryFrom<u8> for VendorRegistryId {
-    type Error = ReadError;
-    fn try_from(val: u8) -> Result<Self, Self::Error> {
-        let id = match val {
-            0 => VendorRegistryId::Dmtf,
-            1 => VendorRegistryId::Tcg,
-            2 => VendorRegistryId::Usb,
-            3 => VendorRegistryId::PciSig,
-            4 => VendorRegistryId::Iana,
-            5 => VendorRegistryId::HDBaseT,
-            6 => VendorRegistryId::Mipi,
-            7 => VendorRegistryId::Cxl,
-            8 => VendorRegistryId::Jedec,
-            _ => {
-                return Err(ReadError::new(
-                    "ERROR",
-                    ReadErrorKind::UnexpectedValue,
-                ));
-            }
-        };
-        Ok(id)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum VendorId {
-    Empty,
-    U16(u16),
-    U32(u32),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -193,19 +149,7 @@ impl Msg for Error {
             Error::VendorDefined(id, val) => {
                 w.put(0xFF)?;
                 w.put(*id as u8)?;
-                match val.vendor_id {
-                    VendorId::Empty => {
-                        w.put(0)?;
-                    }
-                    VendorId::U16(id) => {
-                        w.put(2)?;
-                        w.put_u16(id)?;
-                    }
-                    VendorId::U32(id) => {
-                        w.put(4)?;
-                        w.put_u32(id)?;
-                    }
-                }
+                val.vendor_id.write(w)?;
                 w.extend(&val.opaque_error_data[..val.opaque_len])?;
             }
         }
@@ -264,32 +208,11 @@ impl Error {
             0xFF => {
                 let vendor_registry_id = VendorRegistryId::try_from(data)?;
                 let vendor_id_len = r.get_byte()?;
-                match vendor_id_len {
-                    0 => Error::VendorDefined(
-                        vendor_registry_id,
-                        VendorDefined::empty(),
-                    ),
-                    2 => Error::VendorDefined(
-                        vendor_registry_id,
-                        VendorDefined {
-                            vendor_id: VendorId::U16(r.get_u16()?),
-                            ..VendorDefined::empty()
-                        },
-                    ),
-                    4 => Error::VendorDefined(
-                        vendor_registry_id,
-                        VendorDefined {
-                            vendor_id: VendorId::U32(r.get_u32()?),
-                            ..VendorDefined::empty()
-                        },
-                    ),
-                    _ => {
-                        return Err(ReadError::new(
-                            "ERROR",
-                            ReadErrorKind::UnexpectedValue,
-                        ))
-                    }
-                }
+                let vendor_id = VendorId::read(&mut r, vendor_id_len)?;
+                Error::VendorDefined(
+                    vendor_registry_id,
+                    VendorDefined { vendor_id, ..VendorDefined::empty() },
+                )
             }
             _ => {
                 return Err(ReadError::new(
