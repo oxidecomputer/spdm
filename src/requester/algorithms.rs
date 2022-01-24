@@ -4,7 +4,7 @@
 
 use core::convert::From;
 
-use super::{capabilities, expect, id_auth, RequesterError};
+use super::{capabilities, expect, RequesterError};
 use crate::config;
 use crate::msgs::algorithms::*;
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
@@ -55,17 +55,20 @@ impl State {
     }
 
     /// Only `Algorithms` messsages are acceptable here.
+    ///
+    /// The resulting state is based on capabilities and algorithm
+    /// version. We let the caller handle the transition.
     pub fn handle_msg(
-        mut self,
+        &mut self,
         buf: &[u8],
         transcript: &mut Transcript,
-    ) -> Result<id_auth::State, RequesterError> {
+    ) -> Result<(), RequesterError> {
         expect::<Algorithms>(buf)?;
         let algorithms = Algorithms::parse_body(&buf[HEADER_SIZE..])?;
         self.ensure_valid_algorithms_selected(&algorithms)?;
         self.algorithms = Some(algorithms);
         transcript.extend(buf)?;
-        Ok(self.into())
+        Ok(())
     }
 
     // Make sure that any algorithms chosen by the responder correspond to

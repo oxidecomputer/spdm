@@ -26,6 +26,7 @@ pub use error::RequesterError;
 
 use crate::config;
 use crate::crypto::{FilledSlot, Signer};
+use crate::msgs::capabilities::{ReqFlags, RspFlags};
 
 use core::convert::From;
 
@@ -124,22 +125,23 @@ impl<'a, S: Signer> RequesterInit<'a, S> {
         rsp: &[u8],
     ) -> Result<bool, RequesterError> {
         let state = self.data.state.take().unwrap();
-        let (next_state, result) = state.handle_msg(
+        match state.handle_msg(
             rsp,
             &mut self.data.transcript,
             &self.data.root_cert,
-        );
-        self.data.state = Some(next_state);
-
-        match result {
-            Ok(()) => {
+        ) {
+            Ok(next_state) => {
+                self.data.state = Some(next_state);
                 if let Some(AllStates::NewSession) = self.data.state {
                     Ok(true)
                 } else {
                     Ok(false)
                 }
             }
-            Err(e) => Err(e),
+            Err(e) => {
+                self.data.state = Some(AllStates::Error);
+                Err(e)
+            }
         }
     }
 
@@ -248,37 +250,47 @@ impl AllStates {
         rsp: &[u8],
         transcript: &mut Transcript,
         root_cert: &'a [u8],
-    ) -> (AllStates, Result<(), RequesterError>) {
-        let result = match self {
+    ) -> Result<AllStates, RequesterError> {
+        match self {
             AllStates::Version(state) => {
                 state.handle_msg(rsp, transcript).map(|s| s.into())
             }
             AllStates::Capabilities(state) => {
                 state.handle_msg(rsp, transcript).map(|s| s.into())
             }
-            AllStates::Algorithms(state) => {
-                state.handle_msg(rsp, transcript).map(|s| s.into())
+            AllStates::Algorithms(mut state) => {
+                state.handle_msg(rsp, transcript).map(|_| {
+                    if state.requester_cap.contains(ReqFlags::CERT_CAP)
+                        && state.responder_cap.contains(RspFlags::CERT_CAP)
+                    {
+                        id_auth::State::from(state).into()
+                    } else {
+                        AllStates::NewSession
+                    }
+                })
             }
             AllStates::IdAuth(mut state) => {
                 if state.digests.is_none() {
-                    // Self is taken by ref here so we return immediately.
-                    let result = state.handle_digests(rsp, transcript);
-                    return (state.into(), result);
+                    state.handle_digests(rsp, transcript)?;
+                    Ok(state.into())
                 } else {
-                    state.handle_certificate(rsp, transcript).map(|s| s.into())
+                    state.handle_certificate(rsp, transcript)?;
+                    if state.requester_cap.contains(ReqFlags::CHAL_CAP)
+                        && state.responder_cap.contains(RspFlags::CHAL_CAP)
+                    {
+                        Ok(challenge::State::from(state).into())
+                    } else {
+                        Ok(AllStates::NewSession)
+                    }
                 }
             }
             AllStates::Challenge(state) => {
                 // We haven't implemented any other states, so just go to
                 // `NewSession`.
-                let result = state.handle_msg(rsp, transcript, root_cert);
-                return (AllStates::NewSession, result.map(|_| ()));
+                state.handle_msg(rsp, transcript, root_cert)?;
+                Ok(AllStates::NewSession)
             }
             _ => unimplemented!(),
-        };
-        match result {
-            Ok(next_state) => (next_state, Ok(())),
-            Err(e) => (AllStates::Error, Err(e)),
         }
     }
 

@@ -2,11 +2,13 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+#![cfg(feature = "crypto-ring")]
+
 use spdm::config::{MAX_CERT_CHAIN_SIZE, NUM_SLOTS};
 use spdm::crypto::{
-    digest::{Digest, DigestImpl},
-    signing::{new_signer, RingSigner},
-    FilledSlot, Signer,
+    digest::Digest,
+    ring::signing::{new_signer, RingSigner},
+    DigestImpl, FilledSlot, Signer,
 };
 use spdm::msgs::algorithms::*;
 use spdm::msgs::{

@@ -1,9 +1,6 @@
-# This file contains an example configuration with no crypto provider.
+# This file contains an example configuration.
 version = 0x11
-capabilities = []
-
-# Use this if you have a crypto provider available
-#capabilities = ["CERT_CAP", "CHAL_CAP", "ENCRYPT_CAP",  "MAC_CAP", "MUT_AUTH_CAP", "KEY_EX_CAP", "KEY_UPD_CAP"]
+capabilities = ["CERT_CAP", "CHAL_CAP", "ENCRYPT_CAP",  "MAC_CAP", "MUT_AUTH_CAP", "KEY_EX_CAP", "KEY_UPD_CAP"]
 
 [cert_chains]
 # Tests currently rely on this being greater >= 5

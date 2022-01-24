@@ -335,7 +335,10 @@ impl<'a> CertificateChain<'a> {
 mod tests {
     use core::convert::TryFrom;
     use rcgen;
+
+    #[cfg(feature = "webpki")]
     use std::time::SystemTime;
+    #[cfg(feature = "webpki")]
     use webpki;
 
     use super::super::HEADER_SIZE;
@@ -437,6 +440,7 @@ mod tests {
     // and verified by `webpki`. This is a useful test for correctness, since
     // both crates are written by independent authors. It serves mostly as an
     // example of how to use webpki with DER encoded cert chains.
+    #[cfg(feature = "webpki")]
     #[test]
     fn example_webpki_verify_cert_chain() {
         let root_params = cert_params_ecdsa_p256_sha256(true, "Root");

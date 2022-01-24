@@ -4,21 +4,27 @@
 
 //! The crypto module provides the traits that the rest of the SPDM code relies
 //! on to implement the cryptographic parts of the protocol.
-//!
-//! An initial implementation based on <https://github.com/briansmith/ring>
-//! is provided for digests and signing. An initial implementation of
-//! certificate validation and signature verification is provided by
-//! [webpki](https://github.com/briansmith/webpki), itself backed by `ring`.
-//!
-//! It is expected that all implementations provided by the spdm crate will be
-//! behind features, although this is not done yet. A given deployment of a
-//! system using SPDM is likely only to support a few of these implementations,
-//! and just as likely to implement a few of its own to support specific
-//! hardware.
+
 pub mod digest;
+mod nonce;
 pub mod pki;
 pub mod signing;
 mod slot;
 
+#[cfg(not(feature = "crypto"))]
+mod no_crypto_defaults;
+#[cfg(not(feature = "crypto"))]
+pub use no_crypto_defaults::new_end_entity_cert;
+#[cfg(not(feature = "crypto"))]
+pub use no_crypto_defaults::DigestImpl;
+
+#[cfg(feature = "crypto-ring")]
+pub mod ring;
+#[cfg(feature = "crypto-ring")]
+pub use self::ring::digest::DigestImpl;
+#[cfg(feature = "crypto-ring")]
+pub use self::ring::pki::new_end_entity_cert;
+
+pub use nonce::Nonce;
 pub use signing::Signer;
 pub use slot::FilledSlot;

@@ -35,6 +35,12 @@ pub enum SpdmConfigError {
 
     #[error("Invalid capability: {0}")]
     InvalidCapability(String),
+
+    #[error(
+        "Capabilities: {0:?} not supported because a crypto provider \
+            (e.g.'crypto-ring') is not enabled"
+    )]
+    CryptoCapNotSupported(Vec<String>),
 }
 
 #[derive(Debug, Deserialize)]
@@ -147,10 +153,15 @@ fn max_signature_size(algos: &Vec<String>) -> Result<usize, SpdmConfigError> {
 }
 
 // Return Ok(()) if all capabilities are suppported.
-//
-// We are only listing capabilities that are implemented here, or plan to be
-// implemented short term. This is a subset of all capabilities supported by SPDM.
 fn validate_capabilities(caps: &Vec<String>) -> Result<(), SpdmConfigError> {
+    if std::env::var("CARGO_FEATURE_CRYPTO_RING").is_err() {
+        // Crypto not enabled. We cannot allow any crypto related capabilities
+        // to be set.
+        // TODO: For now, just assume this is all capabilities
+        if !caps.is_empty() {
+            return Err(SpdmConfigError::CryptoCapNotSupported(caps.clone()));
+        }
+    }
     for cap in caps {
         match cap.as_str() {
             "CERT_CAP" | "CHAL_CAP" | "ENCRYPT_CAP" | "MAC_CAP"
@@ -212,6 +223,15 @@ fn main() {
     let config_input = load(src_path).unwrap();
     let config_output = gen_config(config_input).unwrap();
     fs::write(&dest_path, &config_output).unwrap();
+
+    // We may need to make this more fine-grained in the future, but this
+    // follows the "single-provider enables all crypto functionality" model.
+    // When different providers are possible, if at least one is possible this
+    // will be set to true.
+    if std::env::var("CARGO_FEATURE_CRYPTO_RING").is_ok() {
+        println!("cargo:rustc-cfg=feature=\"crypto\"")
+    }
+
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=spdm-config.toml");
     println!("cargo:rerun-if-changed=config.rs.template");

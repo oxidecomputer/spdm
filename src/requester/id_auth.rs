@@ -4,7 +4,7 @@
 
 use core::convert::From;
 
-use super::{algorithms, challenge, expect, RequesterError};
+use super::{algorithms, expect, RequesterError};
 use crate::config::{MAX_CERT_CHAIN_SIZE, NUM_SLOTS};
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
 use crate::msgs::{
@@ -117,14 +117,14 @@ impl State {
 
     // Handle a CERTFICATE msg.
     pub fn handle_certificate(
-        mut self,
+        &mut self,
         buf: &[u8],
         transcript: &mut Transcript,
-    ) -> Result<challenge::State, RequesterError> {
+    ) -> Result<(), RequesterError> {
         expect::<Certificate>(buf)?;
         let cert = Certificate::parse_body(&buf[HEADER_SIZE..])?;
         self.cert_chain = Some(cert);
         transcript.extend(buf)?;
-        Ok(self.into())
+        Ok(())
     }
 }

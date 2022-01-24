@@ -6,7 +6,7 @@ use core::convert::TryFrom;
 
 use super::{algorithms, challenge, expect, AllStates, ResponderError};
 use crate::config::{MAX_CERT_CHAIN_SIZE, NUM_SLOTS};
-use crate::crypto::digest::{Digest, DigestImpl};
+use crate::crypto::{digest::Digest, DigestImpl};
 use crate::msgs::{
     capabilities::{ReqFlags, RspFlags},
     common::DigestBuf,

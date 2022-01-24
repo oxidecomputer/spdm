@@ -7,13 +7,10 @@ use core::convert::From;
 use super::{expect, id_auth, AllStates, ResponderError};
 
 use crate::config::{MAX_CERT_CHAIN_SIZE, NUM_SLOTS};
-use crate::crypto::{
-    digest::{Digest, DigestImpl},
-    FilledSlot, Signer,
-};
+use crate::crypto::{digest::Digest, DigestImpl, FilledSlot, Nonce, Signer};
 use crate::msgs::{
     capabilities::{ReqFlags, RspFlags},
-    common::{DigestBuf, Nonce, SignatureBuf},
+    common::{DigestBuf, SignatureBuf},
     encoding::Writer,
     Algorithms, Challenge, ChallengeAuth, Msg, OpaqueData, HEADER_SIZE,
 };
