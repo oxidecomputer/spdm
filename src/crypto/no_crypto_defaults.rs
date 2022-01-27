@@ -18,6 +18,7 @@ use crate::msgs::algorithms::{BaseAsymAlgo, BaseHashAlgo};
 use super::{
     digest::Digest,
     pki::{self, EndEntityCert},
+    signing::{self, Signature, Signer},
 };
 
 use core::marker::PhantomData;
@@ -42,7 +43,9 @@ impl AsRef<[u8]> for FakeDigest {
 pub fn new_end_entity_cert<'a>(
     _: &'a [u8],
 ) -> Result<impl EndEntityCert<'a>, pki::Error> {
-    Ok(FakeEndEntityCert { phantom: PhantomData })
+    Ok(FakeEndEntityCert {
+        phantom: PhantomData,
+    })
 }
 
 pub struct FakeEndEntityCert<'a> {
@@ -61,6 +64,24 @@ impl<'a> EndEntityCert<'a> for FakeEndEntityCert<'a> {
         _: &[u8],
         _: u64,
     ) -> Result<(), pki::Error> {
+        unimplemented!();
+    }
+}
+
+pub struct FakeSigner;
+
+pub struct FakeSignature;
+
+impl Signature for FakeSignature {}
+impl AsRef<[u8]> for FakeSignature {
+    fn as_ref(&self) -> &[u8] {
+        unimplemented!()
+    }
+}
+
+impl Signer for FakeSigner {
+    type Signature = FakeSignature;
+    fn sign(&self, msg: &[u8]) -> Result<Self::Signature, signing::Error> {
         unimplemented!();
     }
 }

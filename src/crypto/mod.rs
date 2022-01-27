@@ -17,6 +17,8 @@ mod no_crypto_defaults;
 pub use no_crypto_defaults::new_end_entity_cert;
 #[cfg(not(feature = "crypto"))]
 pub use no_crypto_defaults::DigestImpl;
+#[cfg(not(feature = "crypto"))]
+pub use no_crypto_defaults::FakeSigner;
 
 #[cfg(feature = "crypto-ring")]
 pub mod ring;
