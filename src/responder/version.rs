@@ -6,6 +6,7 @@ use super::{capabilities, AllStates, ResponderError};
 use crate::msgs::{GetVersion, Msg, Version, HEADER_SIZE};
 use crate::Transcript;
 
+#[derive(Debug, PartialEq)]
 pub struct State {}
 
 impl State {
