@@ -201,6 +201,14 @@ impl<'a, S: Signer> Responder<'a, S> {
     pub fn slots(&self) -> &[Option<FilledSlot<'a, S>>; config::NUM_SLOTS] {
         &self.slots
     }
+
+    /// Go back to the initial `version::State`.
+    ///
+    /// This also resets the transcript
+    pub fn reset(&mut self) {
+        self.transcript.clear();
+        self.state = Some(version::State {}.into());
+    }
 }
 
 /// Go back to the Version state and process a GetVersion message.
