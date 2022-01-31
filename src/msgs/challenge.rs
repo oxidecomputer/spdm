@@ -5,9 +5,11 @@
 use core::cmp::PartialEq;
 use core::convert::{TryFrom, TryInto};
 
+use crate::crypto::Nonce;
+
 use super::common::{
-    DigestBuf, DigestSize, Nonce, OpaqueData, ParseOpaqueDataError,
-    SignatureBuf, SignatureSize, WriteOpaqueElementError,
+    DigestBuf, DigestSize, OpaqueData, ParseOpaqueDataError, SignatureBuf,
+    SignatureSize, WriteOpaqueElementError,
 };
 use super::encoding::{BufferFullError, ReadError, Reader, Writer};
 use super::Msg;

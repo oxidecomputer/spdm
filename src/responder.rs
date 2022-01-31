@@ -47,6 +47,7 @@ use core::convert::From;
 /// enum, `AllStates`. We then provide a wrapper `Responder` API around
 /// `AllStates` that a user can consume without having to know all the internal
 /// details of the SPDM protocol.
+#[derive(Debug, PartialEq)]
 pub enum AllStates {
     // A special state that indicates the responder has terminated and the
     // transport should close its "connection".
@@ -199,6 +200,14 @@ impl<'a, S: Signer> Responder<'a, S> {
 
     pub fn slots(&self) -> &[Option<FilledSlot<'a, S>>; config::NUM_SLOTS] {
         &self.slots
+    }
+
+    /// Go back to the initial `version::State`.
+    ///
+    /// This also resets the transcript
+    pub fn reset(&mut self) {
+        self.transcript.clear();
+        self.state = Some(version::State {}.into());
     }
 }
 

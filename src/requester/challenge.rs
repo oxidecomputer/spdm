@@ -7,13 +7,15 @@ use core::convert::From;
 use super::{expect, id_auth, RequesterError};
 use crate::config::MAX_CERT_CHAIN_SIZE;
 use crate::crypto::{
-    digest::{Digest, DigestImpl},
-    pki::{self, new_end_entity_cert, EndEntityCert},
+    digest::Digest,
+    new_end_entity_cert,
+    pki::{self, EndEntityCert},
+    DigestImpl, Nonce,
 };
 use crate::msgs::{
     capabilities::{ReqFlags, RspFlags},
     challenge::ParseChallengeAuthError,
-    common::{DigestSize, Nonce},
+    common::DigestSize,
     Algorithms, CertificateChain, Challenge, ChallengeAuth,
     MeasurementHashType, Msg, VersionEntry, HEADER_SIZE,
 };
@@ -35,11 +37,6 @@ const UNIX_TIME: u64 = 1638316800;
 
 // A provisioned certificate does not need to be retrieved
 const PROVISIONED_MASK: u8 = 0x0F;
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum Transition {
-    Placeholder,
-}
 
 #[derive(Debug, PartialEq)]
 pub enum ChallengeAuthError {
@@ -129,11 +126,11 @@ impl State {
     ///
     /// Only CHALLENGE_AUTH msgs are acceptable here.
     pub fn handle_msg(
-        self,
+        &self,
         buf: &[u8],
         transcript: &mut Transcript,
         root_cert: &[u8],
-    ) -> Result<Transition, RequesterError> {
+    ) -> Result<(), RequesterError> {
         expect::<ChallengeAuth>(buf)?;
         let hash_algo = self.algorithms.base_hash_algo_selected;
         let digest_size = hash_algo.get_digest_size();
@@ -183,7 +180,7 @@ impl State {
             root_cert,
             UNIX_TIME,
         )?;
-        Ok(Transition::Placeholder)
+        Ok(())
     }
 
     fn verify_cert_chain_and_signature(
@@ -193,7 +190,7 @@ impl State {
         signature: &[u8],
         root_cert: &[u8],
         seconds_since_unix_epoch: u64,
-    ) -> Result<Transition, RequesterError> {
+    ) -> Result<(), RequesterError> {
         let cert_chain_buf = &self.cert_chain[..self.cert_chain_size as usize];
         let cert_chain = CertificateChain::parse(cert_chain_buf, digest_size)?;
 
@@ -214,6 +211,6 @@ impl State {
             return Err(ChallengeAuthError::InvalidSignature.into());
         }
 
-        Ok(Transition::Placeholder)
+        Ok(())
     }
 }

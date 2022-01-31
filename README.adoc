@@ -276,12 +276,12 @@ https://github.com/oxidecomputer/spdm/blob/bf40def68f149b3f17f25a4f296aaddfb634c
 This template generation is straightforward without the need for a dependency, although it may be safer to use a
 name based generator rather than relying on argument position. 
 
-It should also be mentioned that we plan to drive the requester state
-transitions for the session initialization phase via the capabilities present in
-the configuration. For example, if pre-shared keys are in use via `PSK_CAP`,
-then the states managing PSK related message exchanges will be utilized. In this
-case the mutually exclusive `CERT_CAP` which indicates usage of digests and
-certificates will not have its related states entered or messages exchanges 
+It should also be mentioned that we drive the requester state transitions for
+the session initialization phase via the capabilities present in the
+configuration. For example, if pre-shared keys are in use via `PSK_CAP`, then
+the states managing PSK related message exchanges will be utilized. In this case
+the mutually exclusive `CERT_CAP` which indicates usage of digests and
+certificates will not have its related states entered or messages exchanges
 performed. To be more concrete: If `PSK_CAP` is enabled then the following
 message exchanges will be implemented:
 
@@ -315,6 +315,9 @@ cryptography. Currently all software RSA implementations in rust require
 dynamic allocation, which is not permitted here. This is also fine, because
 really, you shouldn't be using RSA if something else is available.
 
+All crypto is setup to be used behind a feature with a given `provider`. The
+only crypto provider right now is indicated via the cargo feature `crypto-ring`.
+
 Currently, only
 https://github.com/oxidecomputer/spdm/blob/bf40def68f149b3f17f25a4f296aaddfb634c6f3/src/crypto/signing.rs[signing] and 
 https://github.com/oxidecomputer/spdm/blob/bf40def68f149b3f17f25a4f296aaddfb634c6f3/src/crypto/pki.rs[verification]
@@ -322,26 +325,29 @@ based on ECDSA and SHA(3)_XXX
 https://github.com/oxidecomputer/spdm/blob/main/src/crypto/digest.rs[digests] are
 implemented. These implementations are backed by
 https://github.com/briansmith/ring[ring] and
-https://github.com/briansmith/webpki[webpki]. 
+https://github.com/briansmith/webpki[webpki].
 
-While not currently done, we intend to put all crypto implementations behind
-cargo features or the toml based configuration. This will allow utilization of
-HW based implementations when needed. We can perhaps even allow people to opt-in
-to allocation based implementations, although that seems like it may be a bridge
-too far.
+Configured capabilities *must* match whether there is a crypto provider enabled
+or not. If the `crypto-ring` feature is not enabled, no capabilities are allowed
+to be present in the TOML config. Build.rs will error in this case. The default
+configuration though, does not have any capabilities currently set, as we are
+testing bringup on MCUs with custom crypto hardware. This means that using the
+default `spdm-config.toml` only the `VCA` message exchanges will occur.
 
 Another important part of the SPDM protocol is that it allows up to eight slots
-of certificate chains to be used for different purposes. We encode this functionality
-in the
-https://github.com/oxidecomputer/spdm/blob/bf40def68f149b3f17f25a4f296aaddfb634c6f3/src/crypto/slot.rs[FilledSlot] abstraction which describes the algorithms used by the given
-certificate. 
+of certificate chains to be used for different purposes. We encode this
+functionality in the
+https://github.com/oxidecomputer/spdm/blob/bf40def68f149b3f17f25a4f296aaddfb634c6f3/src/crypto/slot.rs[FilledSlot]
+abstraction which describes the algorithms used by the given certificate.
 
-Note since each slot, even if empty,  takes up a memory buffer of
+Note since each slot, even if empty, takes up a memory buffer of
 https://github.com/oxidecomputer/spdm/blob/bf40def68f149b3f17f25a4f296aaddfb634c6f3/config.rs.template#L7-L9[MAX_CERT_CHAIN_SIZE],
 we allow restricting the number of slots available to an implementation when
 more are not needed and memory pressure is significant. This can be done via the
 https://github.com/oxidecomputer/spdm/blob/bf40def68f149b3f17f25a4f296aaddfb634c6f3/config.rs.template#L5[NUM_SLOTS]
 configuration value.
+
+
 
 ==== Measurements
 
@@ -369,3 +375,20 @@ All messages should have at least round-trip serialization tests. Some states
 also have unit tests. An example that steps through a complete happy path of the
 currently implemented protocol for both requester and responder exists in the
 link:tests/protocol.rs[successful_e2e] integration test.
+
+Testing the full e2e code must be done with a crypto provider enabled via
+cargo feature. Currently
+`crypto-ring` is the only provider featue. You can run the full test suite on a
+host OS with the following command.
+
+```
+SPDM_CONFIG=spdm-config-crypto.toml cargo test --features crypto-ring
+```
+
+For platforms where a crypto provider is not available, a subset of tests can be
+run with the following command. This uses the `spdm-config.toml` by default
+which does not currently enable crypto.
+
+```
+cargo test
+```

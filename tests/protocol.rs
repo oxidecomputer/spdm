@@ -2,11 +2,13 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+#![cfg(feature = "crypto-ring")]
+
 use spdm::config::{MAX_CERT_CHAIN_SIZE, NUM_SLOTS};
 use spdm::crypto::{
-    digest::{Digest, DigestImpl},
-    signing::{new_signer, RingSigner},
-    FilledSlot, Signer,
+    digest::Digest,
+    ring::signing::{new_signer, RingSigner},
+    DigestImpl, FilledSlot, Signer,
 };
 use spdm::msgs::algorithms::*;
 use spdm::msgs::{
@@ -28,7 +30,10 @@ pub struct Data {
 
 impl Data {
     pub fn new() -> Data {
-        Data { req_buf: [0u8; BUF_SIZE], rsp_buf: [0u8; BUF_SIZE] }
+        Data {
+            req_buf: [0u8; BUF_SIZE],
+            rsp_buf: [0u8; BUF_SIZE],
+        }
     }
 }
 
@@ -67,7 +72,9 @@ impl Certs {
     pub fn cert_chain<'a>(&'a self) -> CertificateChain<'a> {
         let mut chain =
             CertificateChain::new(self.root_hash.as_ref(), &self.leaf_der);
-        chain.append_intermediate_cert(&self.intermediate_der).unwrap();
+        chain
+            .append_intermediate_cert(&self.intermediate_der)
+            .unwrap();
         chain
     }
 }

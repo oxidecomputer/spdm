@@ -3,10 +3,11 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use super::algorithms::MeasurementSpec;
-use super::common::{Nonce, OpaqueData, SignatureBuf};
+use super::common::{OpaqueData, SignatureBuf};
 use super::encoding::{BufferFullError, ReadError, Reader, Writer};
 use super::Msg;
 use crate::config;
+use crate::crypto::Nonce;
 
 use bitflags::bitflags;
 use core::convert::{From, TryFrom, TryInto};
@@ -99,6 +100,7 @@ impl TryFrom<&MeasurementIndex> for u8 {
 pub enum WriteGetMeasurementsError {
     BufferFull,
     MeasurementIndex(WriteMeasurementIndexError),
+    CryptoDisabled,
 }
 
 impl From<BufferFullError> for WriteGetMeasurementsError {
@@ -171,6 +173,9 @@ impl Msg for GetMeasurements {
     ) -> Result<usize, WriteGetMeasurementsError> {
         w.put((&self.attributes).into())?;
         w.put((&self.index).try_into()?)?;
+
+        // TODO: Ensure measurement capability for signatures is available and
+        // return error if not.
         if self.attributes.signature_requested {
             w.extend(&self.nonce.as_ref().unwrap().as_ref())?;
             w.put(self.slot_id)?;
@@ -197,6 +202,9 @@ impl GetMeasurements {
         let index = r.get_byte()?.into();
         let mut nonce = None;
         let mut slot_id = 0;
+
+        // TODO: Ensure measurement capability for signatures is available and
+        // return error if not.
         if attributes.signature_requested {
             nonce = Some(Nonce::read(&mut r)?);
             slot_id = r.get_byte()?;
@@ -327,6 +335,7 @@ mod tests {
     #[test]
     fn get_measurements_roundtrip() {
         let mut buf = [0u8; 64];
+
         let mut msg = GetMeasurements::new(
             RequestAttributes {
                 signature_requested: true,
@@ -336,12 +345,14 @@ mod tests {
             0,
         );
 
-        assert_eq!(37, msg.write(&mut buf).unwrap());
-
-        assert_eq!(
-            msg,
-            GetMeasurements::parse_body(&buf[HEADER_SIZE..]).unwrap(),
-        );
+        // We only support signatures/nonces when rand is enabled
+        if cfg!(feature = "rand") {
+            assert_eq!(37, msg.write(&mut buf).unwrap());
+            assert_eq!(
+                msg,
+                GetMeasurements::parse_body(&buf[HEADER_SIZE..]).unwrap(),
+            );
+        }
 
         // When signature_requested = false, the nonce and slot id are not
         // serialized.
@@ -384,6 +395,8 @@ mod tests {
     #[test]
     fn get_measurements_read_err() {
         let mut buf = [0u8; 64];
+        // Don't worry about crypto being enabled by setting
+        // `signature_requested = false`
         let msg = GetMeasurements::new(
             RequestAttributes {
                 signature_requested: true,
@@ -394,7 +407,7 @@ mod tests {
             0,
         );
 
-        assert_eq!(37, msg.write(&mut buf).unwrap());
+        msg.write(&mut buf).unwrap();
 
         // This parses successfully
         assert_eq!(
@@ -411,8 +424,11 @@ mod tests {
         // Reset attributes to the correct values
         buf[2] = saved;
 
-        // Corrupt the slot number
-        buf[36] = config::NUM_SLOTS as u8;
-        assert!(GetMeasurements::parse_body(&buf[HEADER_SIZE..]).is_err());
+        // This is only valid if we have a nonce
+        if cfg!(feature = "rand") {
+            // Corrupt the slot number
+            buf[36] = config::NUM_SLOTS as u8;
+            assert!(GetMeasurements::parse_body(&buf[HEADER_SIZE..]).is_err());
+        }
     }
 }

@@ -13,4 +13,6 @@ pub mod responder;
 pub mod msgs;
 pub(crate) mod transcript;
 
+pub use requester::{RequesterError, RequesterInit, RequesterSession};
+pub use responder::{Responder, ResponderError};
 pub use transcript::Transcript;

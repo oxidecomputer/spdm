@@ -2,10 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use ring::io::der;
-
 use crate::config::MAX_SIGNATURE_SIZE;
-use core::convert::TryFrom;
 
 use crate::msgs::algorithms::BaseAsymAlgo;
 
@@ -13,13 +10,6 @@ use crate::msgs::algorithms::BaseAsymAlgo;
 pub enum Error {
     InvalidCert,
     ValidationFailed,
-}
-
-// TODO: Put this behind a feature flag
-pub fn new_end_entity_cert<'a>(
-    leaf_cert: &'a [u8],
-) -> Result<impl EndEntityCert<'a>, Error> {
-    WebpkiEndEntityCert::new(leaf_cert)
 }
 
 /// An EndEntityCert represents the leaf certificate in a certificate chain.
@@ -52,79 +42,9 @@ pub trait EndEntityCert<'a> {
     ) -> Result<(), Error>;
 }
 
-// We don't support any RSA algorithms via webpki because they are based on
-// Ring which requires using alloc;
-//
-// Note that we map a specific curve to a single hash function, which
-// matches the spirit of TLS 1.3 and also fits the signature sizes expected
-// in the `BaseAsymAlgo` description of the `NEGOTIATE_ALGORITHMS` message.
-fn spdm_to_webpki(algo: BaseAsymAlgo) -> &'static webpki::SignatureAlgorithm {
-    match algo {
-        BaseAsymAlgo::ECDSA_ECC_NIST_P256 => &webpki::ECDSA_P256_SHA256,
-        BaseAsymAlgo::ECDSA_ECC_NIST_P384 => &webpki::ECDSA_P384_SHA384,
-        _ => unimplemented!(),
-    }
-}
-
-/// webpki based implementaion of `EndEntityCert`
-///
-/// TODO: put behind a feature flag
-pub struct WebpkiEndEntityCert<'a> {
-    cert: webpki::EndEntityCert<'a>,
-}
-
-impl<'a> WebpkiEndEntityCert<'a> {
-    pub fn new(cert: &'a [u8]) -> Result<WebpkiEndEntityCert<'a>, Error> {
-        let cert = webpki::EndEntityCert::try_from(cert)
-            .map_err(|_| Error::InvalidCert)?;
-        Ok(WebpkiEndEntityCert { cert })
-    }
-}
-
-impl<'a> EndEntityCert<'a> for WebpkiEndEntityCert<'a> {
-    fn verify_signature(
-        &self,
-        algorithm: BaseAsymAlgo,
-        msg: &[u8],
-        signature: &[u8],
-    ) -> bool {
-        let algo = spdm_to_webpki(algorithm);
-        let mut der = [0u8; max_encoded_size()];
-        let size = bin_to_der(signature, &mut der[..]);
-        self.cert.verify_signature(algo, msg, &der[..size]).is_ok()
-    }
-
-    fn verify_chain_of_trust(
-        &self,
-        algorithm: BaseAsymAlgo,
-        intermediate_certs: &[&[u8]],
-        root_cert: &[u8],
-        seconds_since_unix_epoch: u64,
-    ) -> Result<(), Error> {
-        let trust_anchors = [webpki::TrustAnchor::try_from_cert_der(root_cert)
-            .map_err(|_| Error::InvalidCert)?; 1];
-
-        // TODO: Does it matter if we use server or client here?
-        let server_trust_anchors =
-            webpki::TlsServerTrustAnchors(&trust_anchors);
-
-        let time = webpki::Time::from_seconds_since_unix_epoch(
-            seconds_since_unix_epoch,
-        );
-
-        let algo = spdm_to_webpki(algorithm);
-
-        // TODO: Map error types for more info?
-        self.cert
-            .verify_is_valid_tls_server_cert(
-                &[algo],
-                &server_trust_anchors,
-                intermediate_certs,
-                time,
-            )
-            .map_err(|_| Error::ValidationFailed)
-    }
-}
+// DER tags required for this module
+pub const DER_TAG_SEQUENCE: u8 = 0x30;
+pub const DER_TAG_INTEGER: u8 = 0x02;
 
 // Convert `r` and `s` values from fixed size big-endian integers where each
 // takes up 1/2 of the `signature` buffer into a ASN.1 DER encoded buffer
@@ -152,7 +72,7 @@ impl<'a> EndEntityCert<'a> for WebpkiEndEntityCert<'a> {
 //      `0x02` is the tag for an `INTEGER`
 //      `vr` and `vs` are the DER encoded positive integers for `r` and `s`
 //
-fn bin_to_der(signature: &[u8], out: &mut [u8]) -> usize {
+pub fn bin_to_der(signature: &[u8], out: &mut [u8]) -> usize {
     let value_size = signature.len() / 2;
     let r = &signature[..value_size];
     let s = &signature[value_size..];
@@ -164,7 +84,7 @@ fn bin_to_der(signature: &[u8], out: &mut [u8]) -> usize {
     let sig_len = 2 + r_len + s_len + der_length(r_len) + der_length(s_len);
 
     // Write out the sequence tag and length
-    out[0] = der::Tag::Sequence as u8;
+    out[0] = DER_TAG_SEQUENCE;
     let mut written = 1 + write_der_length(&mut out[1..], sig_len);
 
     // Write r and s
@@ -189,7 +109,7 @@ fn get_start_and_length(i: &[u8]) -> (usize, usize) {
 fn integer_to_der(out: &mut [u8], integer: &[u8]) -> usize {
     let pad = if integer[0] & 0x80 != 0 { 1 } else { 0 };
     let mut written = 1;
-    out[0] = der::Tag::Integer as u8;
+    out[0] = DER_TAG_INTEGER;
     written += write_der_length(&mut out[written..], integer.len() + pad);
     if pad == 1 {
         out[written] = 0;
@@ -231,7 +151,7 @@ fn write_der_length(out: &mut [u8], length: usize) -> usize {
 // We also assume that the total size of `r` and `s` is less than 2^16 bytes,
 // such that the total size of the variable length encoding needed is 3 bytes.
 #[rustfmt::skip]
-const fn max_encoded_size() -> usize {
+pub const fn max_encoded_size() -> usize {
     const TAG_SIZE: usize = 1;
     let hash_size = MAX_SIGNATURE_SIZE / 2;
     let size_bytes_needed_per_hash = der_length(hash_size);
