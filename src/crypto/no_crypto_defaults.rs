@@ -13,29 +13,47 @@
 //! methods panics then we have a bug up the stack where states are being
 //! transitioned to where the capabilities are not enabled.
 
-use crate::msgs::algorithms::{BaseAsymAlgo, BaseHashAlgo};
-
-use super::{
-    digest::Digest,
-    pki::{self, EndEntityCert},
-    signing::{self, Signature, Signer},
-};
-
+use core::convert::TryFrom;
 use core::marker::PhantomData;
 
-pub type DigestImpl = FakeDigest;
+use crate::msgs::{
+    algorithms::{BaseAsymAlgo, BaseHashAlgo},
+    common::DigestBuf,
+};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FakeDigest;
+use super::{
+    pki::{self, EndEntityCert},
+    signing::{self, Signature, Signer},
+    Digests,
+};
 
-impl Digest for FakeDigest {
-    fn hash(_: BaseHashAlgo, _: &[u8]) -> Self {
+pub struct ProvidedDigests;
+
+// We have to actually provide at least one algorithm for use in the
+// ALGORITHMS message exchange. However, if no real crypto provider is given,
+// the code that uses this algorithm will not be compiled.
+impl ProvidedDigests {
+    pub fn supported_algorithms() -> BaseHashAlgo {
+        BaseHashAlgo::SHA_256
+    }
+}
+
+// We implement this manually here since we want panics if this is ever called.
+impl Digests for ProvidedDigests {
+    fn update(&mut self, _: impl AsRef<[u8]>) {
+        unimplemented!();
+    }
+    fn finalize(self) -> DigestBuf {
+        unimplemented!();
+    }
+    fn digest(_: BaseHashAlgo, _: impl AsRef<[u8]>) -> DigestBuf {
         unimplemented!();
     }
 }
 
-impl AsRef<[u8]> for FakeDigest {
-    fn as_ref(&self) -> &[u8] {
+impl TryFrom<BaseHashAlgo> for ProvidedDigests {
+    type Error = ();
+    fn try_from(_: BaseHashAlgo) -> Result<Self, Self::Error> {
         unimplemented!();
     }
 }
@@ -43,9 +61,7 @@ impl AsRef<[u8]> for FakeDigest {
 pub fn new_end_entity_cert<'a>(
     _: &'a [u8],
 ) -> Result<impl EndEntityCert<'a>, pki::Error> {
-    Ok(FakeEndEntityCert {
-        phantom: PhantomData,
-    })
+    Ok(FakeEndEntityCert { phantom: PhantomData })
 }
 
 pub struct FakeEndEntityCert<'a> {
@@ -81,7 +97,7 @@ impl AsRef<[u8]> for FakeSignature {
 
 impl Signer for FakeSigner {
     type Signature = FakeSignature;
-    fn sign(&self, msg: &[u8]) -> Result<Self::Signature, signing::Error> {
+    fn sign(&self, _msg: &[u8]) -> Result<Self::Signature, signing::Error> {
         unimplemented!();
     }
 }

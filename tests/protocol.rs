@@ -6,13 +6,13 @@
 
 use spdm::config::{MAX_CERT_CHAIN_SIZE, NUM_SLOTS};
 use spdm::crypto::{
-    digest::Digest,
     ring::signing::{new_signer, RingSigner},
-    DigestImpl, FilledSlot, Signer,
+    Digests as DigestsTrait, FilledSlot, ProvidedDigests, Signer,
 };
 use spdm::msgs::algorithms::*;
 use spdm::msgs::{
-    digest::Digests, encoding::Writer, CertificateChain, GetVersion, Msg,
+    common::DigestBuf, digest::Digests, encoding::Writer, CertificateChain,
+    GetVersion, Msg,
 };
 use spdm::requester::{self, RequesterInit};
 use spdm::responder::{self, AllStates, Responder};
@@ -30,10 +30,7 @@ pub struct Data {
 
 impl Data {
     pub fn new() -> Data {
-        Data {
-            req_buf: [0u8; BUF_SIZE],
-            rsp_buf: [0u8; BUF_SIZE],
-        }
+        Data { req_buf: [0u8; BUF_SIZE], rsp_buf: [0u8; BUF_SIZE] }
     }
 }
 
@@ -42,7 +39,7 @@ struct Certs {
     pub intermediate_der: Vec<u8>,
     pub leaf_der: Vec<u8>,
     pub leaf_private_der: Vec<u8>,
-    pub root_hash: DigestImpl,
+    pub root_hash: DigestBuf,
 }
 
 impl Certs {
@@ -56,7 +53,8 @@ impl Certs {
             rcgen::Certificate::from_params(intermediate_params).unwrap();
         let leaf = rcgen::Certificate::from_params(leaf_params).unwrap();
         let root_der = root.serialize_der().unwrap();
-        let root_hash = DigestImpl::hash(BaseHashAlgo::SHA_256, &root_der);
+        let root_hash =
+            ProvidedDigests::digest(BaseHashAlgo::SHA_256, &root_der);
 
         Certs {
             root_der,
@@ -72,9 +70,7 @@ impl Certs {
     pub fn cert_chain<'a>(&'a self) -> CertificateChain<'a> {
         let mut chain =
             CertificateChain::new(self.root_hash.as_ref(), &self.leaf_der);
-        chain
-            .append_intermediate_cert(&self.intermediate_der)
-            .unwrap();
+        chain.append_intermediate_cert(&self.intermediate_der).unwrap();
         chain
     }
 }
@@ -343,7 +339,7 @@ fn assert_digests_match_cert_chains<'a, S: Signer>(
             let mut buf = [0u8; MAX_CERT_CHAIN_SIZE];
             let mut w = Writer::new(&mut buf);
             let size = slot.as_ref().unwrap().cert_chain.write(&mut w).unwrap();
-            let expected = DigestImpl::hash(hash_algo, &buf[..size]);
+            let expected = ProvidedDigests::digest(hash_algo, &buf[..size]);
             assert_eq!(digest.as_ref().unwrap().as_ref(), expected.as_ref());
         } else {
             assert!(slot.is_none());

@@ -6,7 +6,7 @@ use core::convert::TryFrom;
 
 use super::{algorithms, challenge, expect, AllStates, ResponderError};
 use crate::config::{MAX_CERT_CHAIN_SIZE, NUM_SLOTS};
-use crate::crypto::{digest::Digest, DigestImpl};
+use crate::crypto::{Digests as DigestsTrait, ProvidedDigests};
 use crate::msgs::{
     capabilities::{ReqFlags, RspFlags},
     common::DigestBuf,
@@ -141,7 +141,7 @@ impl State {
             if let Some(cert_chain) = &cert_chains[i] {
                 let mut w = Writer::new(&mut buf);
                 let size = cert_chain.write(&mut w)?;
-                let digest = DigestImpl::hash(
+                let digest = ProvidedDigests::digest(
                     self.algorithms.base_hash_algo_selected,
                     &buf[..size],
                 );

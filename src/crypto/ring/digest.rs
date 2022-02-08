@@ -2,44 +2,37 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use core::cmp::PartialEq;
+use core::convert::{TryFrom, TryInto};
+use crypto::digest::Digest;
+use ring_compat::digest::{Sha256, Sha384, Sha512};
 
-use crate::crypto::digest::Digest;
+use crate::crypto::digest::Digests;
+use crate::impl_digests;
 use crate::msgs::algorithms::BaseHashAlgo;
 
-// TODO: Should this even exist? Should a single crypto provider be used for all
-// mechanisms? Should we allow more than one provider per crypto mechanism?
-pub type DigestImpl = RingDigest;
+impl_digests!(
+    pub enum ProvidedDigests {
+        Sha256(Sha256),
+        Sha384(Sha384),
+        Sha512(Sha512),
+    }
+);
 
-/// A Ring based implementation of a Digest
-#[derive(Debug, Clone)]
-pub struct RingDigest {
-    digest: ring::digest::Digest,
-}
-
-impl PartialEq for RingDigest {
-    fn eq(&self, other: &RingDigest) -> bool {
-        self.as_ref() == other.as_ref()
+impl ProvidedDigests {
+    pub fn supported_algorithms() -> BaseHashAlgo {
+        BaseHashAlgo::SHA_256 | BaseHashAlgo::SHA_384 | BaseHashAlgo::SHA_512
     }
 }
 
-impl Eq for RingDigest {}
-
-impl Digest for RingDigest {
-    fn hash(algorithm: BaseHashAlgo, buf: &[u8]) -> Self {
-        let algo = match algorithm {
-            BaseHashAlgo::SHA_256 => &ring::digest::SHA256,
-            BaseHashAlgo::SHA_384 => &ring::digest::SHA384,
-            BaseHashAlgo::SHA_512 => &ring::digest::SHA512,
-            _ => unimplemented!(),
-        };
-        RingDigest { digest: ring::digest::digest(algo, buf) }
-    }
-}
-
-impl AsRef<[u8]> for RingDigest {
-    fn as_ref(&self) -> &[u8] {
-        self.digest.as_ref()
+impl TryFrom<BaseHashAlgo> for ProvidedDigests {
+    type Error = ();
+    fn try_from(algo: BaseHashAlgo) -> Result<Self, Self::Error> {
+        match algo {
+            BaseHashAlgo::SHA_256 => Ok(ProvidedDigests::Sha256(Sha256::new())),
+            BaseHashAlgo::SHA_384 => Ok(ProvidedDigests::Sha384(Sha384::new())),
+            BaseHashAlgo::SHA_512 => Ok(ProvidedDigests::Sha512(Sha512::new())),
+            _ => Err(()),
+        }
     }
 }
 
@@ -57,7 +50,26 @@ mod tests {
         )
         .unwrap();
 
-        let actual = RingDigest::hash(BaseHashAlgo::SHA_256, b"test\n");
+        let actual = ProvidedDigests::digest(BaseHashAlgo::SHA_256, b"test\n");
+        assert_eq!(&expected, actual.as_ref());
+    }
+
+    #[test]
+    // Expected hashes from openssl output on cli
+    // `echo test | openssl dgst -sha256`
+    fn ring_digest_sha256_incremental() {
+        let expected = from_hex(
+            "f2ca1bb6c7e907d06dafe4687e579fce76b37e4e93b7605022da52e6ccc26fd2",
+        )
+        .unwrap();
+
+        let mut digest =
+            ProvidedDigests::try_from(BaseHashAlgo::SHA_256).unwrap();
+        digest.update(b"te");
+        digest.update(b"st");
+        digest.update(b"\n");
+        let actual = digest.finalize();
+
         assert_eq!(&expected, actual.as_ref());
     }
 
@@ -70,7 +82,7 @@ mod tests {
         )
         .unwrap();
 
-        let actual = RingDigest::hash(BaseHashAlgo::SHA_384, b"test\n");
+        let actual = ProvidedDigests::digest(BaseHashAlgo::SHA_384, b"test\n");
         assert_eq!(&expected, actual.as_ref());
     }
 
@@ -83,13 +95,13 @@ mod tests {
         )
         .unwrap();
 
-        let actual = RingDigest::hash(BaseHashAlgo::SHA_512, b"test\n");
+        let actual = ProvidedDigests::digest(BaseHashAlgo::SHA_512, b"test\n");
         assert_eq!(&expected, actual.as_ref());
     }
 
     #[test]
     #[should_panic]
     fn ring_digest_unsupported() {
-        RingDigest::hash(BaseHashAlgo::SHA3_256, b"test\n");
+        ProvidedDigests::digest(BaseHashAlgo::SHA3_256, b"test\n");
     }
 }

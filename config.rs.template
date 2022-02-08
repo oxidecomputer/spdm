@@ -42,6 +42,3 @@ pub const CAPABILITIES: &'static [&'static str] = &{};
 
 /// All supported asymmetric signing algorithms
 pub const ALGORITHMS_ASYMMETRIC_SIGNING: &'static [&'static str] = &{};
-
-// All supported hash algorithms
-pub const ALGORITHMS_HASH: &'static [&'static str] = &{};

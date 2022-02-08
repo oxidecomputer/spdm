@@ -6,6 +6,7 @@ use core::convert::From;
 
 use super::{capabilities, expect, RequesterError};
 use crate::config;
+use crate::crypto::ProvidedDigests;
 use crate::msgs::algorithms::*;
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
 use crate::msgs::{
@@ -175,16 +176,19 @@ impl State {
     }
 }
 
+// TODO: The whole configuration for algorithms should go away, and be strictly
+// determined by provider. We may want a way to allow configuring priorities and
+// optionally preventing certain algorithms from being used in config, but that can
+// come later.
 fn config_to_negotiate_algorithms_msg(
 ) -> Result<NegotiateAlgorithms, RequesterError> {
     let mut signing_algos = BaseAsymAlgo::default();
     for s in config::ALGORITHMS_ASYMMETRIC_SIGNING {
         signing_algos |= s.parse()?;
     }
-    let mut hash_algos = BaseHashAlgo::default();
-    for s in config::ALGORITHMS_HASH {
-        hash_algos |= s.parse()?;
-    }
+    // TODO: The rest of the code should look like this.
+    let hash_algos = ProvidedDigests::supported_algorithms();
+
     Ok(NegotiateAlgorithms {
         measurement_spec: MeasurementSpec::DMTF,
         base_asym_algo: signing_algos,
