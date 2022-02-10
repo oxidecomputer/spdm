@@ -7,7 +7,7 @@ use core::convert::From;
 use super::{expect, id_auth, AllStates, ResponderError};
 
 use crate::config::{MAX_CERT_CHAIN_SIZE, NUM_SLOTS};
-use crate::crypto::{digest::Digest, DigestImpl, FilledSlot, Nonce, Signer};
+use crate::crypto::{Digests, FilledSlot, Nonce, ProvidedDigests, Signer};
 use crate::msgs::{
     capabilities::{ReqFlags, RspFlags},
     common::{DigestBuf, SignatureBuf},
@@ -67,7 +67,7 @@ impl State {
                 // TODO: Should we fail this if the selected hash algorithm does
                 // not match the slot?
                 // See https://github.com/oxidecomputer/spdm/issues/25
-                DigestImpl::hash(
+                ProvidedDigests::digest(
                     self.algorithms.base_hash_algo_selected,
                     &buf[..size],
                 )
@@ -109,7 +109,7 @@ impl State {
         let sig_start = size - usize::from(signature_size);
         transcript.extend(&rsp[..sig_start])?;
 
-        let m1_hash = DigestImpl::hash(
+        let m1_hash = ProvidedDigests::digest(
             self.algorithms.base_hash_algo_selected,
             transcript.get(),
         );

@@ -27,9 +27,6 @@ pub enum SpdmConfigError {
     #[error("Cert chain buffers cannot exceed 64 KiB")]
     CertChainBufferTooLarge,
 
-    #[error("Invalid hash algorithm: {0}")]
-    InvalidHashAlgorithm(String),
-
     #[error("Invalid asymmetric_signing algorithm: {0}")]
     InvalidAsymmetricSigningAlgorithm(String),
 
@@ -83,8 +80,8 @@ pub struct TranscriptConfig {
 
 #[derive(Debug, Deserialize)]
 pub struct AlgorithmsConfig {
+    pub max_digest_size: usize,
     pub asymmetric_signing: Vec<String>,
-    pub hash: Vec<String>,
 }
 
 // TODO: Validation
@@ -99,35 +96,6 @@ pub struct MeasurementConfig {
 pub struct OpaqueDataConfig {
     pub max_elements: usize,
     pub max_element_data_size: usize,
-}
-
-// Return the maximum hash size if all algorithms are supported, otherwise
-// return an error.
-fn max_hash_size(
-    supported_hashes: &Vec<String>,
-) -> Result<usize, SpdmConfigError> {
-    let mut max_size = 32;
-    for hash in supported_hashes {
-        match hash.as_str() {
-            "SHA_256" | "SHA3_256" => {
-                max_size = 32;
-            }
-            "SHA_384" | "SHA3_384" => {
-                if max_size < 48 {
-                    max_size = 48;
-                }
-            }
-            "SHA_512" | "SHA3_512" => {
-                if max_size < 64 {
-                    max_size = 64;
-                }
-            }
-            x => {
-                return Err(SpdmConfigError::InvalidHashAlgorithm(x.into()));
-            }
-        }
-    }
-    Ok(max_size)
 }
 
 // Return the maximum signature size if all algorithms are supported, otherwise
@@ -184,7 +152,7 @@ pub fn load<P: AsRef<Path>>(path: P) -> Result<SpdmConfig> {
 /// constants.
 pub fn gen_config(input: SpdmConfig) -> Result<String> {
     let template = read_to_string("./config.rs.template")?;
-    let max_hash_size = max_hash_size(&input.algorithms.hash)?;
+    let max_digest_size = input.algorithms.max_digest_size;
     let max_signature_size =
         max_signature_size(&input.algorithms.asymmetric_signing)?;
     input.cert_chains.validate()?;
@@ -194,7 +162,7 @@ pub fn gen_config(input: SpdmConfig) -> Result<String> {
         input.cert_chains.buf_size.to_string(),
         input.cert_chains.max_depth.to_string(),
         input.transcript.buf_size.to_string(),
-        max_hash_size.to_string(),
+        max_digest_size.to_string(),
         max_signature_size.to_string(),
         input.opaque_data.max_element_data_size.to_string(),
         input.opaque_data.max_elements.to_string(),
@@ -202,7 +170,6 @@ pub fn gen_config(input: SpdmConfig) -> Result<String> {
         input.measurement.max_size.to_string(),
         format!("{:?}", input.capabilities),
         format!("{:?}", input.algorithms.asymmetric_signing),
-        format!("{:?}", input.algorithms.hash),
         // We use an empty string to zip the last `;` from the template.
         String::from(""),
     ];

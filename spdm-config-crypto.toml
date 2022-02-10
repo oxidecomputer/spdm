@@ -13,8 +13,8 @@ max_depth = 4
 buf_size = 4096
 
 [algorithms]
+max_digest_size = 64
 asymmetric_signing = ["ECDSA_ECC_NIST_P256"]
-hash = ["SHA_256", "SHA_512"]
 
 [measurement]
 max_blocks = 8
