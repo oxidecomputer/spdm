@@ -8,6 +8,7 @@ use super::Msg;
 /// Request the SPDM version in use at the responder.
 ///
 /// This is the first message issued in the SPDM protocol.
+#[derive(Debug)]
 pub struct GetVersion {}
 
 impl Msg for GetVersion {
