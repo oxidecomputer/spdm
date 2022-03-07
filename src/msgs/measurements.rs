@@ -352,9 +352,9 @@ pub struct DeviceMode {
 /// Table 45 of DMTF 1.2.0 spec
 #[derive(Debug, Clone, PartialEq)]
 pub struct DmtfMeasurement {
-    value_representation: DmtfMeasurementValueRepresentation,
-    value_type: DmtfMeasurementValueType,
-    value: DmtfMeasurementValue,
+    pub value_representation: DmtfMeasurementValueRepresentation,
+    pub value_type: DmtfMeasurementValueType,
+    pub value: DmtfMeasurementValue,
 }
 
 impl DmtfMeasurement {

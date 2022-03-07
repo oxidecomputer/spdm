@@ -33,7 +33,7 @@ pub use digest::{Digests, GetDigests};
 pub use encoding::{BufferFullError, ReadError};
 use encoding::{Reader, Writer};
 pub use error::Error;
-pub use measurements::GetMeasurements;
+pub use measurements::{GetMeasurements, Measurements};
 pub use version::{GetVersion, Version, VersionEntry};
 
 #[derive(Debug, PartialEq)]
