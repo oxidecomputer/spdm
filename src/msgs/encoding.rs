@@ -54,6 +54,15 @@ impl<'a> Writer<'a> {
         Ok(self.offset)
     }
 
+    // Write the lower 3 bytes of a usize
+    pub fn put_u24(&mut self, num: usize) -> Result<usize, BufferFullError> {
+        let buf = num.to_le_bytes();
+        for i in 0..3 {
+            self.put(buf[i])?;
+        }
+        Ok(self.offset)
+    }
+
     // Write a u32 in little-endian byte order
     pub fn put_u32(&mut self, num: u32) -> Result<usize, BufferFullError> {
         let buf = num.to_le_bytes();
