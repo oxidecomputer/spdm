@@ -4,8 +4,8 @@
 
 use super::algorithms::MeasurementSpec;
 use super::common::{
-    DigestBuf, DigestSize, DigestTooLargeError, OpaqueData, SignatureBuf,
-    WriteOpaqueElementError,
+    DigestBuf, DigestSize, DigestTooLargeError, OpaqueData,
+    ParseOpaqueDataError, SignatureBuf, SignatureSize, WriteOpaqueElementError,
 };
 use super::encoding::{BufferFullError, ReadError, Reader, Writer};
 use super::Msg;
@@ -235,6 +235,7 @@ pub enum ContentChanged {
     False,
 }
 
+#[derive(Debug)]
 pub struct ParseContentChangedError;
 
 impl TryFrom<u8> for ContentChanged {
@@ -685,12 +686,46 @@ impl MeasurementBlocks {
     }
 }
 
+#[derive(Debug)]
+pub enum ParseMeasurementsError {
+    MaxSlotNumberExceeded,
+    MaxBlocksExceeded,
+    Read(ReadError),
+    Blocks(ParseMeasurementBlocksError),
+    ContentChanged(ParseContentChangedError),
+    Opaque(ParseOpaqueDataError),
+}
+
+impl From<ReadError> for ParseMeasurementsError {
+    fn from(e: ReadError) -> Self {
+        ParseMeasurementsError::Read(e)
+    }
+}
+
+impl From<ParseMeasurementBlocksError> for ParseMeasurementsError {
+    fn from(e: ParseMeasurementBlocksError) -> Self {
+        ParseMeasurementsError::Blocks(e)
+    }
+}
+
+impl From<ParseContentChangedError> for ParseMeasurementsError {
+    fn from(e: ParseContentChangedError) -> Self {
+        ParseMeasurementsError::ContentChanged(e)
+    }
+}
+
+impl From<ParseOpaqueDataError> for ParseMeasurementsError {
+    fn from(e: ParseOpaqueDataError) -> Self {
+        ParseMeasurementsError::Opaque(e)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Measurements {
     // Param1
     pub total_blocks: u8,
 
-    // Param2
+    // Bits [5:4] of Param2
     pub content_changed: ContentChanged,
 
     // slot_id of cert chain specified in GET_MEASUREMENTS request
@@ -767,6 +802,45 @@ impl Measurements {
         }
         w.put(param2)?;
         Ok(w.offset())
+    }
+
+    pub fn parse_body(
+        buf: &[u8],
+        signature_requested: bool,
+        signature_size: SignatureSize,
+    ) -> Result<Measurements, ParseMeasurementsError> {
+        let mut r = Reader::new(buf);
+        let total_blocks = r.get_byte()?;
+
+        if total_blocks as usize > config::MAX_MEASUREMENT_BLOCKS {
+            return Err(ParseMeasurementsError::MaxBlocksExceeded);
+        }
+
+        // Skip over 2 reserved bits of Param2
+        let _ = r.get_bits(2);
+        let content_changed = ContentChanged::try_from(r.get_bits(2)?)?;
+        let slot_id = r.get_bits(4)?;
+        if slot_id as usize > config::NUM_SLOTS {
+            return Err(ParseMeasurementsError::MaxSlotNumberExceeded);
+        }
+        let blocks = MeasurementBlocks::read(&mut r)?;
+        let nonce = Nonce::read(&mut r)?;
+        let opaque_data = OpaqueData::read(&mut r)?;
+        let signature = if signature_requested {
+            Some(SignatureBuf::read(signature_size, &mut r)?)
+        } else {
+            None
+        };
+
+        Ok(Measurements {
+            total_blocks,
+            content_changed,
+            slot_id,
+            blocks,
+            nonce,
+            opaque_data,
+            signature,
+        })
     }
 }
 
