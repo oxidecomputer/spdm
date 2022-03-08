@@ -4,7 +4,8 @@
 
 use super::algorithms::MeasurementSpec;
 use super::common::{
-    DigestBuf, OpaqueData, SignatureBuf, WriteOpaqueElementError,
+    DigestBuf, DigestSize, DigestTooLargeError, OpaqueData, SignatureBuf,
+    WriteOpaqueElementError,
 };
 use super::encoding::{BufferFullError, ReadError, Reader, Writer};
 use super::Msg;
@@ -234,12 +235,39 @@ pub enum ContentChanged {
     False,
 }
 
+pub struct ParseContentChangedError;
+
+impl TryFrom<u8> for ContentChanged {
+    type Error = ParseContentChangedError;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Ok(match value {
+            0b00 => ContentChanged::NotSupported,
+            0b01 => ContentChanged::True,
+            0b10 => ContentChanged::False,
+            _ => return Err(ParseContentChangedError),
+        })
+    }
+}
+
 // Bit 7 of byte 0 (DMTFSpecMeasurementValueType) in Table 45 of DMTF 1.2.0 spec
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DmtfMeasurementValueRepresentation {
     Digest = 0x00,
     RawBitStream = 0x80,
+}
+
+pub struct ParseDmtfMeasurementValueRepresentationError;
+
+impl TryFrom<u8> for DmtfMeasurementValueRepresentation {
+    type Error = ParseDmtfMeasurementValueRepresentationError;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Ok(match value {
+            0x00 => DmtfMeasurementValueRepresentation::Digest,
+            0x80 => DmtfMeasurementValueRepresentation::RawBitStream,
+            _ => return Err(ParseDmtfMeasurementValueRepresentationError),
+        })
+    }
 }
 
 // Bits 6:0 of byte 0 (DMTFSpecMeasurementValueType) in Table 45 of DMTF 1.2.0
@@ -257,6 +285,26 @@ pub enum DmtfMeasurementValueType {
     MutableFirmwareSecurityVersion = 0x07,
 }
 
+pub struct ParseDmtfMeasurementValueTypeError;
+
+impl TryFrom<u8> for DmtfMeasurementValueType {
+    type Error = ParseDmtfMeasurementValueTypeError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Ok(match value {
+            0x00 => DmtfMeasurementValueType::ImmutableRom,
+            0x01 => DmtfMeasurementValueType::MutableFirmware,
+            0x02 => DmtfMeasurementValueType::HardwareConfig,
+            0x03 => DmtfMeasurementValueType::FirmwareConfig,
+            0x04 => DmtfMeasurementValueType::MeasurementManifest,
+            0x05 => DmtfMeasurementValueType::DeviceMode,
+            0x06 => DmtfMeasurementValueType::MutableFirmwareVersion,
+            0x07 => DmtfMeasurementValueType::MutableFirmwareSecurityVersion,
+            _ => return Err(ParseDmtfMeasurementValueTypeError),
+        })
+    }
+}
+
 // TODO: Add to config
 const MAX_MEASUREMENT_SIZE: usize = 16;
 
@@ -265,6 +313,17 @@ const MAX_MEASUREMENT_SIZE: usize = 16;
 pub struct BitStream {
     len: usize,
     buf: [u8; MAX_MEASUREMENT_SIZE],
+}
+
+pub enum ParseBitStreamError {
+    MaxSizeExceeded,
+    Read(ReadError),
+}
+
+impl From<ReadError> for ParseBitStreamError {
+    fn from(e: ReadError) -> Self {
+        ParseBitStreamError::Read(e)
+    }
 }
 
 impl BitStream {
@@ -280,6 +339,19 @@ impl BitStream {
 
     pub fn len(&self) -> usize {
         self.len
+    }
+
+    pub fn read(
+        len: usize,
+        r: &mut Reader,
+    ) -> Result<BitStream, ParseBitStreamError> {
+        if len > MAX_MEASUREMENT_SIZE {
+            return Err(ParseBitStreamError::MaxSizeExceeded);
+        }
+        let mut buf = [0u8; MAX_MEASUREMENT_SIZE];
+        r.get_slice(len, &mut buf)?;
+
+        Ok(BitStream { len, buf })
     }
 }
 
@@ -357,6 +429,46 @@ pub struct DmtfMeasurement {
     pub value: DmtfMeasurementValue,
 }
 
+pub enum ParseDmtfMeasurementError {
+    Representation(ParseDmtfMeasurementValueRepresentationError),
+    Type(ParseDmtfMeasurementValueTypeError),
+    Read(ReadError),
+    DigestTooLargeError,
+    BitStream(ParseBitStreamError),
+}
+
+impl From<ParseDmtfMeasurementValueTypeError> for ParseDmtfMeasurementError {
+    fn from(e: ParseDmtfMeasurementValueTypeError) -> Self {
+        ParseDmtfMeasurementError::Type(e)
+    }
+}
+
+impl From<ParseDmtfMeasurementValueRepresentationError>
+    for ParseDmtfMeasurementError
+{
+    fn from(e: ParseDmtfMeasurementValueRepresentationError) -> Self {
+        ParseDmtfMeasurementError::Representation(e)
+    }
+}
+
+impl From<ReadError> for ParseDmtfMeasurementError {
+    fn from(e: ReadError) -> Self {
+        ParseDmtfMeasurementError::Read(e)
+    }
+}
+
+impl From<DigestTooLargeError> for ParseDmtfMeasurementError {
+    fn from(_: DigestTooLargeError) -> Self {
+        ParseDmtfMeasurementError::DigestTooLargeError
+    }
+}
+
+impl From<ParseBitStreamError> for ParseDmtfMeasurementError {
+    fn from(e: ParseBitStreamError) -> Self {
+        ParseDmtfMeasurementError::BitStream(e)
+    }
+}
+
 impl DmtfMeasurement {
     fn serialized_size(&self) -> usize {
         3 + self.value.len()
@@ -373,6 +485,27 @@ impl DmtfMeasurement {
         w.put_u16(self.value.len().try_into().unwrap())?;
         self.value.write(w)
     }
+
+    fn read(
+        r: &mut Reader,
+    ) -> Result<DmtfMeasurement, ParseDmtfMeasurementError> {
+        // We want to make the read and write methods symmetric by shifting the bit
+        let value_representation =
+            DmtfMeasurementValueRepresentation::try_from(r.get_bit()? << 7)?;
+        let value_type = DmtfMeasurementValueType::try_from(r.get_bits(7)?)?;
+        let value_size = r.get_u16()?;
+        let value = match value_representation {
+            DmtfMeasurementValueRepresentation::Digest => {
+                let size = DigestSize::try_from(value_size as usize)?;
+                DmtfMeasurementValue::Digest(DigestBuf::read(size, r)?)
+            }
+            DmtfMeasurementValueRepresentation::RawBitStream => {
+                let bitstream = BitStream::read(value_size as usize, r)?;
+                DmtfMeasurementValue::BitStream(bitstream)
+            }
+        };
+        Ok(DmtfMeasurement { value_representation, value_type, value })
+    }
 }
 
 /// Table 44 of DMTF 1.2.0 spec
@@ -381,6 +514,17 @@ pub struct MeasurementBlock {
     pub index: u8,
     pub measurement_spec_selected: MeasurementSpec,
     pub measurement: DmtfMeasurement,
+}
+
+pub enum ParseMeasurementBlockError {
+    InvalidMeasurementSpec,
+    Read(ReadError),
+}
+
+impl From<ReadError> for ParseMeasurementBlockError {
+    fn from(e: ReadError) -> Self {
+        ParseMeasurementBlockError::Read(e)
+    }
 }
 
 impl MeasurementBlock {
@@ -393,6 +537,16 @@ impl MeasurementBlock {
         w.put(self.measurement_spec_selected.bits())?;
         w.put_u16(self.measurement.serialized_size().try_into().unwrap())?;
         self.measurement.write(w)
+    }
+
+    fn read(
+        r: &mut Reader,
+    ) -> Result<MeasurementBlock, ParseMeasurementBlockError> {
+        let index = r.get_byte()?;
+        let spec = r.get_byte()?;
+        if spec != MeasurementSpec::DMTF {
+            return Err(ParseMeasurementBlockError::InvalidMeasurementSpec);
+        }
     }
 }
 

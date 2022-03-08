@@ -256,6 +256,21 @@ impl<'a> Reader<'a> {
         Ok(())
     }
 
+    /// Read a u24 in little endian byte order and return it as a usize
+    ///
+    /// This only works on aligned reads.
+    pub fn get_u24(&mut self) -> Result<usize, ReadError> {
+        if !self.is_aligned() {
+            return Err(ReadError::Unaligned);
+        }
+        let mut val: usize = 0;
+        val |= self.get_byte()? as usize;
+        val |= (self.get_byte()? as usize) << 8;
+        val |= (self.get_byte()? as usize) << 16;
+
+        Ok(val)
+    }
+
     /// Read a u32 in little endian byte order
     ///
     /// This only works on aligned reads.
@@ -383,5 +398,21 @@ mod tests {
         }
         assert!(reader.is_empty());
         assert!(reader.get_bit().is_err());
+    }
+
+    #[test]
+    fn u24_roundtrip() {
+        let val = 0x1de;
+        let mut buf = [0u8; 4];
+        {
+            let mut writer = Writer::new(&mut buf);
+            let bytes_written = writer.put_u24(val).unwrap();
+            assert_eq!(3, bytes_written);
+        }
+
+        let mut reader = Reader::new(&buf);
+        let read_val = reader.get_u24().unwrap();
+
+        assert_eq!(val, read_val);
     }
 }
