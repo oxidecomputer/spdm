@@ -308,14 +308,11 @@ impl TryFrom<u8> for DmtfMeasurementValueType {
     }
 }
 
-// TODO: Add to config
-const MAX_MEASUREMENT_SIZE: usize = 16;
-
 /// A raw measurement
 #[derive(Debug, Clone)]
 pub struct BitStream {
     len: usize,
-    buf: [u8; MAX_MEASUREMENT_SIZE],
+    buf: [u8; config::MAX_MEASUREMENT_SIZE],
 }
 
 #[derive(Debug)]
@@ -332,7 +329,7 @@ impl From<ReadError> for ParseBitStreamError {
 
 impl BitStream {
     pub fn new(data: &[u8]) -> BitStream {
-        let mut buf = [0u8; MAX_MEASUREMENT_SIZE];
+        let mut buf = [0u8; config::MAX_MEASUREMENT_SIZE];
         buf[..data.len()].copy_from_slice(data);
         BitStream { len: data.len(), buf }
     }
@@ -349,10 +346,10 @@ impl BitStream {
         len: usize,
         r: &mut Reader,
     ) -> Result<BitStream, ParseBitStreamError> {
-        if len > MAX_MEASUREMENT_SIZE {
+        if len > config::MAX_MEASUREMENT_SIZE {
             return Err(ParseBitStreamError::MaxSizeExceeded);
         }
-        let mut buf = [0u8; MAX_MEASUREMENT_SIZE];
+        let mut buf = [0u8; config::MAX_MEASUREMENT_SIZE];
         r.get_slice(len, &mut buf)?;
 
         Ok(BitStream { len, buf })
@@ -494,10 +491,10 @@ impl DmtfMeasurement {
     fn read(
         r: &mut Reader,
     ) -> Result<DmtfMeasurement, ParseDmtfMeasurementError> {
+        let value_type = DmtfMeasurementValueType::try_from(r.get_bits(7)?)?;
         // We want to make the read and write methods symmetric by shifting the bit
         let value_representation =
             DmtfMeasurementValueRepresentation::try_from(r.get_bit()? << 7)?;
-        let value_type = DmtfMeasurementValueType::try_from(r.get_bits(7)?)?;
         let value_size = r.get_u16()?;
         let value = match value_representation {
             DmtfMeasurementValueRepresentation::Digest => {
@@ -666,7 +663,8 @@ impl MeasurementBlocks {
     ) -> Result<MeasurementBlocks, ParseMeasurementBlocksError> {
         let num_blocks = r.get_byte()? as usize;
         let size = r.get_u24()?;
-        if size > MAX_MEASUREMENT_SIZE * config::MAX_MEASUREMENT_BLOCKS {
+        if size > config::MAX_MEASUREMENT_SIZE * config::MAX_MEASUREMENT_BLOCKS
+        {
             return Err(ParseMeasurementBlocksError::MaxSizeExceeded);
         }
         let offset = r.byte_offset();
@@ -690,6 +688,7 @@ impl MeasurementBlocks {
 pub enum ParseMeasurementsError {
     MaxSlotNumberExceeded,
     MaxBlocksExceeded,
+    MaxOpaqueDataSizeExceeded,
     Read(ReadError),
     Blocks(ParseMeasurementBlocksError),
     ContentChanged(ParseContentChangedError),
@@ -816,16 +815,24 @@ impl Measurements {
             return Err(ParseMeasurementsError::MaxBlocksExceeded);
         }
 
-        // Skip over 2 reserved bits of Param2
-        let _ = r.get_bits(2);
-        let content_changed = ContentChanged::try_from(r.get_bits(2)?)?;
+        // Parse Param2
         let slot_id = r.get_bits(4)?;
         if slot_id as usize > config::NUM_SLOTS {
             return Err(ParseMeasurementsError::MaxSlotNumberExceeded);
         }
+        let content_changed = ContentChanged::try_from(r.get_bits(2)?)?;
+        // Skip over 2 reserved bits of Param2
+        let _ = r.get_bits(2);
+
         let blocks = MeasurementBlocks::read(&mut r)?;
         let nonce = Nonce::read(&mut r)?;
+
+        let opaque_data_len = r.get_u16()?;
+        if opaque_data_len as usize > 1024 {
+            return Err(ParseMeasurementsError::MaxOpaqueDataSizeExceeded);
+        }
         let opaque_data = OpaqueData::read(&mut r)?;
+
         let signature = if signature_requested {
             Some(SignatureBuf::read(signature_size, &mut r)?)
         } else {
@@ -976,5 +983,132 @@ mod tests {
             buf[36] = config::NUM_SLOTS as u8;
             assert!(GetMeasurements::parse_body(&buf[HEADER_SIZE..]).is_err());
         }
+    }
+
+    #[test]
+    fn measurements_with_total_roundtrip_no_sig() {
+        let mut buf = [0u8; 1024];
+        let msg = Measurements::new_with_num_measurements(
+            5,
+            ContentChanged::NotSupported,
+            0,
+            Nonce::new(),
+            OpaqueData::default(),
+            None,
+        );
+
+        msg.write(&mut buf).unwrap();
+
+        assert_eq!(
+            msg,
+            Measurements::parse_body(
+                &buf[HEADER_SIZE..],
+                false,
+                SignatureSize::try_from(64).unwrap()
+            )
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn measurements_with_total_roundtrip_with_sig() {
+        let mut buf = [0u8; 1024];
+        let sig_size = SignatureSize::try_from(64).unwrap();
+        let msg = Measurements::new_with_num_measurements(
+            5,
+            ContentChanged::NotSupported,
+            0,
+            Nonce::new(),
+            OpaqueData::default(),
+            Some(SignatureBuf::new_with_magic(sig_size, 0xaf)),
+        );
+
+        msg.write(&mut buf).unwrap();
+
+        assert_eq!(
+            msg,
+            Measurements::parse_body(&buf[HEADER_SIZE..], true, sig_size)
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn measurements_roundtrip() {
+        let mut buf = [0u8; 1024];
+        let sig_size = SignatureSize::try_from(64).unwrap();
+        let digest_size = DigestSize::try_from(32).unwrap();
+
+        let mut blocks = MeasurementBlocks::default();
+        blocks.len = 1;
+        blocks.blocks[0] = Some(MeasurementBlock {
+            index: 0x1,
+            measurement_spec_selected: MeasurementSpec::DMTF,
+            measurement: DmtfMeasurement {
+                value_representation:
+                    DmtfMeasurementValueRepresentation::Digest,
+                value_type: DmtfMeasurementValueType::MutableFirmware,
+                value: DmtfMeasurementValue::Digest(DigestBuf::new_with_magic(
+                    digest_size,
+                    0xcc,
+                )),
+            },
+        });
+
+        let msg = Measurements::new_with_measurements(
+            ContentChanged::True,
+            0,
+            blocks,
+            Nonce::new(),
+            OpaqueData::default(),
+            None,
+        );
+
+        msg.write(&mut buf).unwrap();
+
+        assert_eq!(
+            msg,
+            Measurements::parse_body(&buf[HEADER_SIZE..], false, sig_size)
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn measurements_with_sig_roundtrip() {
+        let mut buf = [0u8; 1024];
+        let sig_size = SignatureSize::try_from(64).unwrap();
+        let digest_size = DigestSize::try_from(32).unwrap();
+
+        let mut blocks = MeasurementBlocks::default();
+        blocks.len = 1;
+        blocks.blocks[0] = Some(MeasurementBlock {
+            index: 0x1,
+            measurement_spec_selected: MeasurementSpec::DMTF,
+            measurement: DmtfMeasurement {
+                value_representation:
+                    DmtfMeasurementValueRepresentation::Digest,
+                value_type: DmtfMeasurementValueType::MutableFirmware,
+                value: DmtfMeasurementValue::Digest(DigestBuf::new_with_magic(
+                    digest_size,
+                    0xcc,
+                )),
+            },
+        });
+
+        let msg = Measurements::new_with_measurements(
+            ContentChanged::True,
+            0,
+            blocks,
+            Nonce::new(),
+            OpaqueData::default(),
+            Some(SignatureBuf::new_with_magic(sig_size, 0xde)),
+        );
+
+        msg.write(&mut buf).unwrap();
+
+        assert_eq!(
+            msg,
+            Measurements::parse_body(&buf[HEADER_SIZE..], true, sig_size)
+                .unwrap()
+        );
     }
 }
