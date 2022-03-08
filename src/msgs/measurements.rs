@@ -257,6 +257,7 @@ pub enum DmtfMeasurementValueRepresentation {
     RawBitStream = 0x80,
 }
 
+#[derive(Debug)]
 pub struct ParseDmtfMeasurementValueRepresentationError;
 
 impl TryFrom<u8> for DmtfMeasurementValueRepresentation {
@@ -285,6 +286,7 @@ pub enum DmtfMeasurementValueType {
     MutableFirmwareSecurityVersion = 0x07,
 }
 
+#[derive(Debug)]
 pub struct ParseDmtfMeasurementValueTypeError;
 
 impl TryFrom<u8> for DmtfMeasurementValueType {
@@ -315,6 +317,7 @@ pub struct BitStream {
     buf: [u8; MAX_MEASUREMENT_SIZE],
 }
 
+#[derive(Debug)]
 pub enum ParseBitStreamError {
     MaxSizeExceeded,
     Read(ReadError),
@@ -429,6 +432,7 @@ pub struct DmtfMeasurement {
     pub value: DmtfMeasurementValue,
 }
 
+#[derive(Debug)]
 pub enum ParseDmtfMeasurementError {
     Representation(ParseDmtfMeasurementValueRepresentationError),
     Type(ParseDmtfMeasurementValueTypeError),
@@ -516,6 +520,7 @@ pub struct MeasurementBlock {
     pub measurement: DmtfMeasurement,
 }
 
+#[derive(Debug)]
 pub enum ParseMeasurementBlockError {
     InvalidMeasurementSpec,
 
@@ -595,6 +600,26 @@ impl From<WriteOpaqueElementError> for WriteMeasurementsError {
     }
 }
 
+#[derive(Debug)]
+pub enum ParseMeasurementBlocksError {
+    MaxSizeExceeded,
+    MeasurementSizeMismatch,
+    Block(ParseMeasurementBlockError),
+    Read(ReadError),
+}
+
+impl From<ParseMeasurementBlockError> for ParseMeasurementBlocksError {
+    fn from(e: ParseMeasurementBlockError) -> Self {
+        ParseMeasurementBlocksError::Block(e)
+    }
+}
+
+impl From<ReadError> for ParseMeasurementBlocksError {
+    fn from(e: ReadError) -> Self {
+        ParseMeasurementBlocksError::Read(e)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct MeasurementBlocks {
     pub len: usize,
@@ -633,6 +658,30 @@ impl MeasurementBlocks {
             self.blocks[i].as_ref().unwrap().write(w)?;
         }
         Ok(w.offset())
+    }
+
+    fn read(
+        r: &mut Reader,
+    ) -> Result<MeasurementBlocks, ParseMeasurementBlocksError> {
+        let num_blocks = r.get_byte()? as usize;
+        let size = r.get_u24()?;
+        if size > MAX_MEASUREMENT_SIZE * config::MAX_MEASUREMENT_BLOCKS {
+            return Err(ParseMeasurementBlocksError::MaxSizeExceeded);
+        }
+        let offset = r.byte_offset();
+        let mut blocks = MeasurementBlocks::default();
+        blocks.len = num_blocks;
+        for i in 0..num_blocks {
+            let block = MeasurementBlock::read(r)?;
+            blocks.blocks[i] = Some(block);
+        }
+
+        // Ensure the size on the wire matches what we read
+        if size != r.byte_offset() - offset {
+            return Err(ParseMeasurementBlocksError::MeasurementSizeMismatch);
+        }
+
+        Ok(blocks)
     }
 }
 
