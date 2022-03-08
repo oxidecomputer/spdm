@@ -518,12 +518,23 @@ pub struct MeasurementBlock {
 
 pub enum ParseMeasurementBlockError {
     InvalidMeasurementSpec,
+
+    // What was put on the wire for `MeasurementSize` doesn't match the read
+    // `Measurement`
+    MeasurementSizeMismatch,
+    Measurement(ParseDmtfMeasurementError),
     Read(ReadError),
 }
 
 impl From<ReadError> for ParseMeasurementBlockError {
     fn from(e: ReadError) -> Self {
         ParseMeasurementBlockError::Read(e)
+    }
+}
+
+impl From<ParseDmtfMeasurementError> for ParseMeasurementBlockError {
+    fn from(e: ParseDmtfMeasurementError) -> Self {
+        ParseMeasurementBlockError::Measurement(e)
     }
 }
 
@@ -544,9 +555,25 @@ impl MeasurementBlock {
     ) -> Result<MeasurementBlock, ParseMeasurementBlockError> {
         let index = r.get_byte()?;
         let spec = r.get_byte()?;
-        if spec != MeasurementSpec::DMTF {
+        if spec != MeasurementSpec::DMTF.bits() {
             return Err(ParseMeasurementBlockError::InvalidMeasurementSpec);
         }
+        // It's actually unnecessary to read the size, since the Measurement is
+        // self describing. We use this to validate the size of the read Measurement
+        // matches what was put on the wire.
+        let size = r.get_u16()? as usize;
+        let offset = r.byte_offset();
+        let measurement = DmtfMeasurement::read(r)?;
+
+        if size != r.byte_offset() - offset {
+            return Err(ParseMeasurementBlockError::MeasurementSizeMismatch);
+        }
+
+        Ok(MeasurementBlock {
+            index,
+            measurement_spec_selected: MeasurementSpec::DMTF,
+            measurement,
+        })
     }
 }
 
