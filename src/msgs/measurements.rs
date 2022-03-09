@@ -122,7 +122,7 @@ impl From<WriteMeasurementIndexError> for WriteGetMeasurementsError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ParseGetMeasurementsError {
     ReservedBitsNotZero,
     MaxSlotNumberExceeded,
@@ -235,7 +235,7 @@ pub enum ContentChanged {
     False,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct ParseContentChangedError;
 
 impl TryFrom<u8> for ContentChanged {
@@ -258,7 +258,7 @@ pub enum DmtfMeasurementValueRepresentation {
     RawBitStream = 0x80,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct ParseDmtfMeasurementValueRepresentationError;
 
 impl TryFrom<u8> for DmtfMeasurementValueRepresentation {
@@ -287,7 +287,7 @@ pub enum DmtfMeasurementValueType {
     MutableFirmwareSecurityVersion = 0x07,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct ParseDmtfMeasurementValueTypeError;
 
 impl TryFrom<u8> for DmtfMeasurementValueType {
@@ -315,7 +315,7 @@ pub struct BitStream {
     buf: [u8; config::MAX_MEASUREMENT_SIZE],
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ParseBitStreamError {
     MaxSizeExceeded,
     Read(ReadError),
@@ -430,7 +430,7 @@ pub struct DmtfMeasurement {
     pub value: DmtfMeasurementValue,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ParseDmtfMeasurementError {
     Representation(ParseDmtfMeasurementValueRepresentationError),
     Type(ParseDmtfMeasurementValueTypeError),
@@ -519,7 +519,7 @@ pub struct MeasurementBlock {
     pub measurement: DmtfMeasurement,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ParseMeasurementBlockError {
     InvalidMeasurementSpec,
 
@@ -599,7 +599,7 @@ impl From<WriteOpaqueElementError> for WriteMeasurementsError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ParseMeasurementBlocksError {
     MaxSizeExceeded,
     MeasurementSizeMismatch,
@@ -685,7 +685,7 @@ impl MeasurementBlocks {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ParseMeasurementsError {
     MaxSlotNumberExceeded,
     MaxBlocksExceeded,
@@ -755,6 +755,7 @@ impl Measurements {
         opaque_data: OpaqueData,
         signature: Option<SignatureBuf>,
     ) -> Measurements {
+        assert!((slot_id as usize) < config::NUM_SLOTS);
         Measurements {
             total_blocks,
             content_changed,
@@ -776,6 +777,7 @@ impl Measurements {
         opaque_data: OpaqueData,
         signature: Option<SignatureBuf>,
     ) -> Measurements {
+        assert!((slot_id as usize) < config::NUM_SLOTS);
         Measurements {
             total_blocks: 0,
             content_changed,
@@ -1110,6 +1112,95 @@ mod tests {
             msg,
             Measurements::parse_body(&buf[HEADER_SIZE..], true, sig_size)
                 .unwrap()
+        );
+    }
+
+    #[test]
+    fn measurements_parse_size_mismatch() {
+        let mut buf = [0u8; 1024];
+        let sig_size = SignatureSize::try_from(64).unwrap();
+        let digest_size = DigestSize::try_from(32).unwrap();
+
+        let mut blocks = MeasurementBlocks::default();
+        blocks.len = 1;
+        blocks.blocks[0] = Some(MeasurementBlock {
+            index: 0x1,
+            measurement_spec_selected: MeasurementSpec::DMTF,
+            measurement: DmtfMeasurement {
+                value_representation:
+                    DmtfMeasurementValueRepresentation::Digest,
+                value_type: DmtfMeasurementValueType::MutableFirmware,
+                value: DmtfMeasurementValue::Digest(DigestBuf::new_with_magic(
+                    digest_size,
+                    0xcc,
+                )),
+            },
+        });
+
+        let msg = Measurements::new_with_measurements(
+            ContentChanged::True,
+            0,
+            blocks,
+            Nonce::new(),
+            OpaqueData::default(),
+            Some(SignatureBuf::new_with_magic(sig_size, 0xde)),
+        );
+
+        msg.write(&mut buf).unwrap();
+
+        // Patch MeasurementRecordLength to the wrong size
+        // (5 bytes little endian)
+        buf[5] = 5;
+        buf[6] = 0;
+        buf[7] = 0;
+
+        assert_eq!(
+            Err(ParseMeasurementsError::Blocks(
+                ParseMeasurementBlocksError::MeasurementSizeMismatch
+            )),
+            Measurements::parse_body(&buf[HEADER_SIZE..], true, sig_size)
+        );
+    }
+
+    #[test]
+    fn measurements_parse_max_slot_num_exceeded() {
+        let mut buf = [0u8; 1024];
+        let sig_size = SignatureSize::try_from(64).unwrap();
+        let digest_size = DigestSize::try_from(32).unwrap();
+
+        let mut blocks = MeasurementBlocks::default();
+        blocks.len = 1;
+        blocks.blocks[0] = Some(MeasurementBlock {
+            index: 0x1,
+            measurement_spec_selected: MeasurementSpec::DMTF,
+            measurement: DmtfMeasurement {
+                value_representation:
+                    DmtfMeasurementValueRepresentation::Digest,
+                value_type: DmtfMeasurementValueType::MutableFirmware,
+                value: DmtfMeasurementValue::Digest(DigestBuf::new_with_magic(
+                    digest_size,
+                    0xcc,
+                )),
+            },
+        });
+
+        let msg = Measurements::new_with_measurements(
+            ContentChanged::True,
+            0,
+            blocks,
+            Nonce::new(),
+            OpaqueData::default(),
+            Some(SignatureBuf::new_with_magic(sig_size, 0xde)),
+        );
+
+        msg.write(&mut buf).unwrap();
+
+        // Patch slot number
+        buf[3] |= 0x0F;
+
+        assert_eq!(
+            Err(ParseMeasurementsError::MaxSlotNumberExceeded),
+            Measurements::parse_body(&buf[HEADER_SIZE..], true, sig_size)
         );
     }
 }
