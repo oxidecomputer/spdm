@@ -491,18 +491,19 @@ impl DmtfMeasurement {
     fn read(
         r: &mut Reader,
     ) -> Result<DmtfMeasurement, ParseDmtfMeasurementError> {
-        let value_type = DmtfMeasurementValueType::try_from(r.get_bits(7)?)?;
+        let val = r.get_byte()?;
+        let value_type = DmtfMeasurementValueType::try_from(val & 0x7f)?;
         // We want to make the read and write methods symmetric by shifting the bit
         let value_representation =
-            DmtfMeasurementValueRepresentation::try_from(r.get_bit()? << 7)?;
+            DmtfMeasurementValueRepresentation::try_from(val & 0x80)?;
         let value_size = r.get_u16()?;
         let value = match value_representation {
             DmtfMeasurementValueRepresentation::Digest => {
-                let size = DigestSize::try_from(value_size as usize)?;
+                let size = DigestSize::try_from(usize::from(value_size))?;
                 DmtfMeasurementValue::Digest(DigestBuf::read(size, r)?)
             }
             DmtfMeasurementValueRepresentation::RawBitStream => {
-                let bitstream = BitStream::read(value_size as usize, r)?;
+                let bitstream = BitStream::read(usize::from(value_size), r)?;
                 DmtfMeasurementValue::BitStream(bitstream)
             }
         };
@@ -564,7 +565,7 @@ impl MeasurementBlock {
         // It's actually unnecessary to read the size, since the Measurement is
         // self describing. We use this to validate the size of the read Measurement
         // matches what was put on the wire.
-        let size = r.get_u16()? as usize;
+        let size = usize::from(r.get_u16()?);
         let offset = r.byte_offset();
         let measurement = DmtfMeasurement::read(r)?;
 
@@ -811,13 +812,13 @@ impl Measurements {
         let mut r = Reader::new(buf);
         let total_blocks = r.get_byte()?;
 
-        if total_blocks as usize > config::MAX_MEASUREMENT_BLOCKS {
+        if usize::from(total_blocks) > config::MAX_MEASUREMENT_BLOCKS {
             return Err(ParseMeasurementsError::MaxBlocksExceeded);
         }
 
         // Parse Param2
         let slot_id = r.get_bits(4)?;
-        if slot_id as usize > config::NUM_SLOTS {
+        if usize::from(slot_id) > config::NUM_SLOTS {
             return Err(ParseMeasurementsError::MaxSlotNumberExceeded);
         }
         let content_changed = ContentChanged::try_from(r.get_bits(2)?)?;
@@ -828,7 +829,7 @@ impl Measurements {
         let nonce = Nonce::read(&mut r)?;
 
         let opaque_data_len = r.get_u16()?;
-        if opaque_data_len as usize > 1024 {
+        if usize::from(opaque_data_len) > 1024 {
             return Err(ParseMeasurementsError::MaxOpaqueDataSizeExceeded);
         }
         let opaque_data = OpaqueData::read(&mut r)?;

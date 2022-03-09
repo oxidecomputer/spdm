@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use core::convert::TryInto;
+use core::convert::{TryFrom, TryInto};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct BufferFullError;
@@ -263,12 +263,12 @@ impl<'a> Reader<'a> {
         if !self.is_aligned() {
             return Err(ReadError::Unaligned);
         }
-        let mut val: usize = 0;
-        val |= self.get_byte()? as usize;
-        val |= (self.get_byte()? as usize) << 8;
-        val |= (self.get_byte()? as usize) << 16;
+        let mut val: u32 = 0;
+        val |= u32::from(self.get_byte()?);
+        val |= u32::from(self.get_byte()?) << 8;
+        val |= u32::from(self.get_byte()?) << 16;
 
-        Ok(val)
+        Ok(usize::try_from(val).unwrap())
     }
 
     /// Read a u32 in little endian byte order
@@ -404,15 +404,13 @@ mod tests {
     fn u24_roundtrip() {
         let val = 0x1de;
         let mut buf = [0u8; 4];
-        {
-            let mut writer = Writer::new(&mut buf);
-            let bytes_written = writer.put_u24(val).unwrap();
-            assert_eq!(3, bytes_written);
-        }
+
+        let mut writer = Writer::new(&mut buf);
+        let bytes_written = writer.put_u24(val).unwrap();
+        assert_eq!(3, bytes_written);
 
         let mut reader = Reader::new(&buf);
         let read_val = reader.get_u24().unwrap();
-
         assert_eq!(val, read_val);
     }
 }
