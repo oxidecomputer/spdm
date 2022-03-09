@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use core::convert::TryInto;
+use core::convert::{TryFrom, TryInto};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct BufferFullError;
@@ -49,6 +49,15 @@ impl<'a> Writer<'a> {
     pub fn put_u16(&mut self, num: u16) -> Result<usize, BufferFullError> {
         let buf = num.to_le_bytes();
         for i in 0..2 {
+            self.put(buf[i])?;
+        }
+        Ok(self.offset)
+    }
+
+    // Write the lower 3 bytes of a usize
+    pub fn put_u24(&mut self, num: usize) -> Result<usize, BufferFullError> {
+        let buf = num.to_le_bytes();
+        for i in 0..3 {
             self.put(buf[i])?;
         }
         Ok(self.offset)
@@ -247,6 +256,21 @@ impl<'a> Reader<'a> {
         Ok(())
     }
 
+    /// Read a u24 in little endian byte order and return it as a usize
+    ///
+    /// This only works on aligned reads.
+    pub fn get_u24(&mut self) -> Result<usize, ReadError> {
+        if !self.is_aligned() {
+            return Err(ReadError::Unaligned);
+        }
+        let mut val: u32 = 0;
+        val |= u32::from(self.get_byte()?);
+        val |= u32::from(self.get_byte()?) << 8;
+        val |= u32::from(self.get_byte()?) << 16;
+
+        Ok(usize::try_from(val).unwrap())
+    }
+
     /// Read a u32 in little endian byte order
     ///
     /// This only works on aligned reads.
@@ -374,5 +398,19 @@ mod tests {
         }
         assert!(reader.is_empty());
         assert!(reader.get_bit().is_err());
+    }
+
+    #[test]
+    fn u24_roundtrip() {
+        let val = 0x1de;
+        let mut buf = [0u8; 4];
+
+        let mut writer = Writer::new(&mut buf);
+        let bytes_written = writer.put_u24(val).unwrap();
+        assert_eq!(3, bytes_written);
+
+        let mut reader = Reader::new(&buf);
+        let read_val = reader.get_u24().unwrap();
+        assert_eq!(val, read_val);
     }
 }
