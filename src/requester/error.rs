@@ -76,6 +76,12 @@ pub enum RequesterError {
 
     // Parsing a Certificate Chain failed
     ParseCertChain(ParseCertificateChainError),
+
+    // The protocol has reached an error state and a request was attempted
+    Wedged,
+
+    // The protocol has already completed and a new request arrived.
+    Complete,
 }
 
 impl From<BufferFullError> for RequesterError {

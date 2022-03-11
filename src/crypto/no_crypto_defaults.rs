@@ -14,15 +14,10 @@
 //! transitioned to where the capabilities are not enabled.
 
 use core::convert::TryFrom;
-use core::marker::PhantomData;
 
-use crate::msgs::{
-    algorithms::{BaseAsymAlgo, BaseHashAlgo},
-    common::DigestBuf,
-};
+use crate::msgs::{algorithms::BaseHashAlgo, common::DigestBuf};
 
 use super::{
-    pki::{self, EndEntityCert},
     signing::{self, Signature, Signer},
     Digests,
 };
@@ -54,32 +49,6 @@ impl Digests for ProvidedDigests {
 impl TryFrom<BaseHashAlgo> for ProvidedDigests {
     type Error = ();
     fn try_from(_: BaseHashAlgo) -> Result<Self, Self::Error> {
-        unimplemented!();
-    }
-}
-
-pub fn new_end_entity_cert<'a>(
-    _: &'a [u8],
-) -> Result<impl EndEntityCert<'a>, pki::Error> {
-    Ok(FakeEndEntityCert { phantom: PhantomData })
-}
-
-pub struct FakeEndEntityCert<'a> {
-    phantom: PhantomData<&'a [u8]>,
-}
-
-impl<'a> EndEntityCert<'a> for FakeEndEntityCert<'a> {
-    fn verify_signature(&self, _: BaseAsymAlgo, _: &[u8], _: &[u8]) -> bool {
-        unimplemented!();
-    }
-
-    fn verify_chain_of_trust(
-        &self,
-        _: BaseAsymAlgo,
-        _: &[&[u8]],
-        _: &[u8],
-        _: u64,
-    ) -> Result<(), pki::Error> {
         unimplemented!();
     }
 }

@@ -11,7 +11,7 @@ use core::str::FromStr;
 bitflags! {
     /// The Capabilities defined by the requester
     #[derive(Default)]
-    pub struct ReqFlags: u32 {
+    pub struct  ReqFlags: u32 {
         const CERT_CAP = 0b0000_0010;
         const CHAL_CAP = 0b0000_0100;
         const ENCRYPT_CAP = 0b0100_0000;

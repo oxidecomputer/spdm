@@ -14,16 +14,12 @@ mod slot;
 #[cfg(not(feature = "crypto"))]
 mod no_crypto_defaults;
 #[cfg(not(feature = "crypto"))]
-pub use no_crypto_defaults::{
-    new_end_entity_cert, FakeSigner, ProvidedDigests,
-};
+pub use no_crypto_defaults::{FakeSigner, ProvidedDigests};
 
 #[cfg(feature = "crypto-ring")]
 pub mod ring;
 #[cfg(feature = "crypto-ring")]
 pub use self::ring::digest::ProvidedDigests;
-#[cfg(feature = "crypto-ring")]
-pub use self::ring::pki::new_end_entity_cert;
 
 pub use digest::Digests;
 pub use nonce::Nonce;

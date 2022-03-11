@@ -3,13 +3,27 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use crate::config::MAX_SIGNATURE_SIZE;
-
 use crate::msgs::algorithms::BaseAsymAlgo;
+use crate::msgs::certificates::CertificateChain;
 
-#[derive(Debug, PartialEq)]
-pub enum Error {
-    InvalidCert,
-    ValidationFailed,
+/// A Validator represents *all* trust anchors (root certificates) used to endorse
+/// any end entity (leaf) certificates via a certificate chain.
+///
+/// The validator is used to ensure that any received certificate chain is
+/// rooted to a trust anchor that the user of the SPDM library trusts. Basic
+/// constraint validation should also be performed.
+///
+/// Validators can also be used to ensure extra, application specific properties
+/// of an end entity cert, such as that they derive from a shared DeviceId
+/// public key. or that they have certain information encoded in the cert.
+pub trait Validator<'a> {
+    type Error;
+    type EndEntityCert: EndEntityCert<'a>;
+
+    fn validate(
+        algorithm: BaseAsymAlgo,
+        cert_chain: CertificateChain<'a>,
+    ) -> Result<Self::EndEntityCert, Self::Error>;
 }
 
 /// An EndEntityCert represents the leaf certificate in a certificate chain.
@@ -17,29 +31,17 @@ pub enum Error {
 /// It can be used to verify that a msg was signed by the certificate's
 /// corresponding private key.
 ///
-/// It can also be verfied that an EndEntityCert is valid for a certificate ///
-/// chain given a root certifcate and chain of intermediate certificates where
-/// the first intermediate certificate in the chain is signed by the root
-/// certificate and the last intermediate certificate in the chain has signed
-/// the EndEntity (leaf) certificate.
-///
-///
-/// An EndEntityCert wraps an ASN.1 DER encoded x.509 v3 certificate.
+/// EndEntityCerts are are created by a `Validator` and returned after they have
+/// already been validated. Therefore the only thing they need to be used for is
+/// verifying signatures.
 pub trait EndEntityCert<'a> {
-    fn verify_signature(
-        &self,
+    type Error;
+
+    fn verify(
         algorithm: BaseAsymAlgo,
         msg: &[u8],
         signature: &[u8],
-    ) -> bool;
-
-    fn verify_chain_of_trust(
-        &self,
-        algorithm: BaseAsymAlgo,
-        intermediate_certs: &[&[u8]],
-        root_cert: &[u8],
-        seconds_since_unix_epoch: u64,
-    ) -> Result<(), Error>;
+    ) -> Result<(), Self::Error>;
 }
 
 // DER tags required for this module

@@ -3,16 +3,28 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use core::convert::TryFrom;
+use heapless::Vec;
 
 use crate::msgs::algorithms::BaseAsymAlgo;
+use crate::msgs::certificates::CertificateChain;
 
 use super::super::pki::{bin_to_der, max_encoded_size, EndEntityCert, Error};
 
-pub fn new_end_entity_cert<'a>(
-    leaf_cert: &'a [u8],
-) -> Result<impl EndEntityCert<'a>, Error> {
-    WebpkiEndEntityCert::new(leaf_cert)
-}
+// This is purposefully hardcoded as device certs mostly will not expire and we
+// need *some* valid time. Furthermore, during early boot we will not have
+// access to a trusted source of time.
+//
+// An alternative would be to disable the time check in a patched version of
+// WebPKI.
+//
+// This may not work for all consumers of this library.
+// Tracked in https://github.com/oxidecomputer/spdm/issues/31
+//
+// December 1, 2021 00:00:00 GMT
+const UNIX_TIME: u64 = 1638316800;
+
+// TODO: Make this configurable?
+const MAX_ROOT_CERTS: u8 = 8;
 
 // We don't support any RSA algorithms via webpki because they are based on
 // Ring which requires using alloc;
@@ -28,62 +40,71 @@ fn spdm_to_webpki(algo: BaseAsymAlgo) -> &'static webpki::SignatureAlgorithm {
     }
 }
 
-/// webpki based implementaion of `EndEntityCert`
-///
-/// TODO: put behind a feature flag
-pub struct WebpkiEndEntityCert<'a> {
-    cert: webpki::EndEntityCert<'a>,
+/// A validator is a wrapper around a set of trust anchors
+pub struct WebpkiValidator<'a> {
+    trust_anchors: Vec<<webpki::TrustAnchor>, MAX_ROOT_CERTS>,
 }
 
-impl<'a> WebpkiEndEntityCert<'a> {
-    pub fn new(cert: &'a [u8]) -> Result<WebpkiEndEntityCert<'a>, Error> {
-        let cert = webpki::EndEntityCert::try_from(cert)
-            .map_err(|_| Error::InvalidCert)?;
-        Ok(WebpkiEndEntityCert { cert })
+impl<'a> WebpkiValidator<'a> {
+    /// Create a validator from a set of DER encoded X.509v3 root certs
+    pub fn try_from_der_root_certs(
+        root_certs: &[&[u8]],
+    ) -> Result<WebpkiValidator, webpki::Error> {
+
+        let trust_anchors = root_certs.iter().map(|cert| webpki::TrustAnchor::try_from_cert_der(cert)?).collect();
+
+        Ok(WebpkiValidator { trust_anchors })
     }
 }
 
-impl<'a> EndEntityCert<'a> for WebpkiEndEntityCert<'a> {
-    fn verify_signature(
-        &self,
-        algorithm: BaseAsymAlgo,
-        msg: &[u8],
-        signature: &[u8],
-    ) -> bool {
-        let algo = spdm_to_webpki(algorithm);
-        let mut der = [0u8; max_encoded_size()];
-        let size = bin_to_der(signature, &mut der[..]);
-        self.cert.verify_signature(algo, msg, &der[..size]).is_ok()
-    }
+impl<'a> Validator for WebpkiValidator<'a> {
+    type Error = webpki::Error;
+    type EndEntityCert = WebpkiEndEntityCert<'a>;
 
-    fn verify_chain_of_trust(
-        &self,
-        algorithm: BaseAsymAlgo,
-        intermediate_certs: &[&[u8]],
-        root_cert: &[u8],
-        seconds_since_unix_epoch: u64,
-    ) -> Result<(), Error> {
-        let trust_anchors = [webpki::TrustAnchor::try_from_cert_der(root_cert)
-            .map_err(|_| Error::InvalidCert)?; 1];
-
-        // TODO: Does it matter if we use server or client here?
-        let server_trust_anchors =
-            webpki::TlsServerTrustAnchors(&trust_anchors);
+    fn validate(
+        algo: BaseAsymAlgo,
+        cert_chain: CertificateChain<'a>,
+    ) -> Result<Self::EndEntityCert, Self::Error> {
+        let cert = webpki::EndEntityCert::try_from(cert_chain.leaf_cert)?;
 
         let time = webpki::Time::from_seconds_since_unix_epoch(
-            seconds_since_unix_epoch,
+            UNIX_TIME
         );
 
         let algo = spdm_to_webpki(algorithm);
 
-        // TODO: Map error types for more info?
-        self.cert
-            .verify_is_valid_tls_server_cert(
-                &[algo],
-                &server_trust_anchors,
-                intermediate_certs,
-                time,
-            )
-            .map_err(|_| Error::ValidationFailed)
+        // TODO: Does it matter if we use server or client here?
+        let server_trust_anchors =
+            webpki::TlsServerTrustAnchors(&self.trust_anchors);
+
+        cert.verify_is_valid_tls_server_cert(
+            &[algo],
+            &server_trust_anchors,
+            cert_chain.intermediate_certs(),
+            time,
+        )?;
+
+        Ok(WebpkiEndEntityCert { cert })
+    }
+}
+
+/// webpki based implementaion of `EndEntityCert`
+pub struct WebpkiEndEntityCert<'a> {
+    cert: webpki::EndEntityCert<'a>,
+}
+
+impl<'a> EndEntityCert<'a> for WebpkiEndEntityCert<'a> {
+    type Error = webpki::Error;
+
+    fn verify(
+        &self,
+        algorithm: BaseAsymAlgo,
+        msg: &[u8],
+        signature: &[u8],
+    ) -> Result<(), Self::Error> {
+        let algo = spdm_to_webpki(algorithm);
+        let mut der = [0u8; max_encoded_size()];
+        let size = bin_to_der(signature, &mut der[..]);
+        self.cert.verify_signature(algo, msg, &der[..size])
     }
 }

@@ -7,7 +7,6 @@ use core::convert::From;
 use super::{expect, id_auth, RequesterError};
 use crate::config::MAX_CERT_CHAIN_SIZE;
 use crate::crypto::{
-    new_end_entity_cert,
     pki::{self, EndEntityCert},
     Digests, Nonce, ProvidedDigests,
 };
@@ -20,19 +19,6 @@ use crate::msgs::{
 };
 
 use crate::Transcript;
-
-// This is purposefully hardcoded as device certs mostly will not expire and we
-// need *some* valid time. Furthermore, during early boot we will not have
-// access to a trusted source of time.
-//
-// An alternative would be to disable the time check in a patched version of
-// WebPKI.
-//
-// This may not work for all consumers of this library.
-// Tracked in https://github.com/oxidecomputer/spdm/issues/31
-//
-// December 1, 2021 00:00:00 GMT
-const UNIX_TIME: u64 = 1638316800;
 
 // A provisioned certificate does not need to be retrieved
 const PROVISIONED_MASK: u8 = 0x0F;
