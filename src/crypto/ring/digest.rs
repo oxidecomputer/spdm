@@ -6,7 +6,7 @@ use core::convert::{TryFrom, TryInto};
 use crypto::digest::Digest;
 use ring_compat::digest::{Sha256, Sha384, Sha512};
 
-use crate::crypto::digest::Digests;
+use crate::crypto::digest::{Digests, SupportedDigestAlgorithms};
 use crate::impl_digests;
 use crate::msgs::algorithms::BaseHashAlgo;
 
@@ -18,8 +18,8 @@ impl_digests!(
     }
 );
 
-impl ProvidedDigests {
-    pub fn supported_algorithms() -> BaseHashAlgo {
+impl SupportedDigestAlgorithms for ProvidedDigests {
+    fn supported_algorithms() -> BaseHashAlgo {
         BaseHashAlgo::SHA_256 | BaseHashAlgo::SHA_384 | BaseHashAlgo::SHA_512
     }
 }

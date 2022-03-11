@@ -6,9 +6,12 @@ use crate::msgs::algorithms::BaseHashAlgo;
 use crate::msgs::common::DigestBuf;
 use core::convert::{AsRef, TryFrom};
 
-/// Providers implement this trait to provide cryptographic hash support
-pub trait Digest: AsRef<[u8]> {
-    fn hash(algorithm: BaseHashAlgo, buf: &[u8]) -> Self;
+/// The set of all digest algorithms supported by a provider
+///
+/// The `NegotiateAlgorithms` and `Algorithms` messages are filled in using the
+/// values provided here.
+pub trait SupportedDigestAlgorithms {
+    fn supported_algorithms() -> BaseHashAlgo;
 }
 
 /// A trait for enum wrappers around RustCrypto `Digest` variants
@@ -23,7 +26,7 @@ pub trait Digest: AsRef<[u8]> {
 ///  * `new()` and `new_with_prefix()` don't semantically make sense for enums
 ///  * We can't uniformly return `Output<Self>` for the underlying variant types
 ///    since the lengths vary and `GenericArray` does not allow that.
-pub trait Digests: TryFrom<BaseHashAlgo> {
+pub trait Digests: SupportedDigestAlgorithms + TryFrom<BaseHashAlgo> {
     // Incrementally update a hash
     fn update(&mut self, data: impl AsRef<[u8]>);
 
