@@ -6,6 +6,8 @@ use crate::config::MAX_SIGNATURE_SIZE;
 use crate::msgs::algorithms::BaseAsymAlgo;
 use crate::msgs::certificates::CertificateChain;
 
+use core::fmt::Debug;
+
 /// A Validator represents *all* trust anchors (root certificates) used to endorse
 /// any end entity (leaf) certificates via a certificate chain.
 ///
@@ -17,7 +19,7 @@ use crate::msgs::certificates::CertificateChain;
 /// of an end entity cert, such as that they derive from a shared DeviceId
 /// public key. or that they have certain information encoded in the cert.
 pub trait Validator<'a> {
-    type Error;
+    type Error: Debug + PartialEq;
     type EndEntityCert: EndEntityCert<'a>;
 
     fn validate(
@@ -35,9 +37,9 @@ pub trait Validator<'a> {
 /// already been validated. Therefore the only thing they need to be used for is
 /// verifying signatures.
 pub trait EndEntityCert<'a> {
-    type Error;
+    type Error: Debug + PartialEq;
 
-    fn verify(
+    fn verify_signature(
         algorithm: BaseAsymAlgo,
         msg: &[u8],
         signature: &[u8],

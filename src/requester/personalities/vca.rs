@@ -6,6 +6,10 @@
 //! This is useful to demonstrate usage of a requester and to bring up new boards
 //! where crypto is not yet implemented.
 
+use crate::msgs::capabilities::ReqFlags;
+use crate::requester::{algorithms, capabilities, version, RequesterError};
+use crate::Transcript;
+
 /// A requester that only goes through the Version, Capabilities, and Algorithms
 /// message exchanges.
 pub struct Requester {

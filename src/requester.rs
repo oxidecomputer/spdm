@@ -16,6 +16,7 @@ pub mod algorithms;
 pub mod capabilities;
 pub mod challenge;
 pub mod id_auth;
+pub mod personalities;
 pub mod version;
 
 mod error;
@@ -182,6 +183,7 @@ pub enum AllStates {
     // TODO: Fill this in with an actual state once sessions are implemented.
     NewSession,
 }
+
 impl From<version::State> for AllStates {
     fn from(state: version::State) -> AllStates {
         AllStates::Version(state)

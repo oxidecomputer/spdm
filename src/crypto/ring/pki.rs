@@ -96,7 +96,7 @@ pub struct WebpkiEndEntityCert<'a> {
 impl<'a> EndEntityCert<'a> for WebpkiEndEntityCert<'a> {
     type Error = webpki::Error;
 
-    fn verify(
+    fn verify_signature(
         &self,
         algorithm: BaseAsymAlgo,
         msg: &[u8],

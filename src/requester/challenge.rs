@@ -3,11 +3,12 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use core::convert::From;
+use core::fmt::Debug;
 
 use super::{expect, id_auth, RequesterError};
 use crate::config::MAX_CERT_CHAIN_SIZE;
 use crate::crypto::{
-    pki::{self, EndEntityCert},
+    pki::{self, EndEntityCert, Validator},
     Digests, Nonce, ProvidedDigests,
 };
 use crate::msgs::{
@@ -24,7 +25,10 @@ use crate::Transcript;
 const PROVISIONED_MASK: u8 = 0x0F;
 
 #[derive(Debug, PartialEq)]
-pub enum ChallengeAuthError {
+pub enum ChallengeAuthError<E>
+where
+    E: Debug + PartialEq,
+{
     /// The responder did not indicate the slot which was requested
     IncorrectSlot,
 
@@ -42,17 +46,17 @@ pub enum ChallengeAuthError {
     ParseChallengeAuth(ParseChallengeAuthError),
 
     /// Cert chain validation failed
-    Pki(pki::Error),
+    Pki(E),
 }
 
-impl From<ParseChallengeAuthError> for ChallengeAuthError {
+impl<E> From<ParseChallengeAuthError> for ChallengeAuthError<E> {
     fn from(e: ParseChallengeAuthError) -> Self {
         ChallengeAuthError::ParseChallengeAuth(e)
     }
 }
 
-impl From<pki::Error> for ChallengeAuthError {
-    fn from(e: pki::Error) -> Self {
+impl<E> From<E> for ChallengeAuthError<E> {
+    fn from(e: E) -> Self {
         ChallengeAuthError::Pki(e)
     }
 }
@@ -110,14 +114,18 @@ impl State {
     /// Process a received responder message.
     ///
     /// Only CHALLENGE_AUTH msgs are acceptable here.
-    pub fn handle_msg(
+    pub fn handle_msg<V>(
         &self,
         buf: &[u8],
         transcript: &mut Transcript,
-        root_cert: &[u8],
-    ) -> Result<(), RequesterError> {
+        validator: V,
+    ) -> Result<(), RequesterError>
+    where
+        V: for<'a> Validator<'a>,
+    {
         expect::<ChallengeAuth>(buf)?;
         let hash_algo = self.algorithms.base_hash_algo_selected;
+        let signing_algo = self.algorithms.base_asym_algo_selected;
         let digest_size = hash_algo.get_digest_size();
         let signature_size =
             self.algorithms.base_asym_algo_selected.get_signature_size();
@@ -158,43 +166,21 @@ impl State {
         transcript.extend(&buf[..sig_start])?;
         let m2_hash = ProvidedDigests::digest(hash_algo, transcript.get());
 
-        self.verify_cert_chain_and_signature(
-            digest_size,
-            m2_hash.as_ref(),
-            rsp.signature.as_ref(),
-            root_cert,
-            UNIX_TIME,
-        )?;
-        Ok(())
-    }
-
-    fn verify_cert_chain_and_signature(
-        &self,
-        digest_size: DigestSize,
-        m2_hash: &[u8],
-        signature: &[u8],
-        root_cert: &[u8],
-        seconds_since_unix_epoch: u64,
-    ) -> Result<(), RequesterError> {
+        // TODO: Use heapless::Vec to get rid of this buffer nonsense
         let cert_chain_buf = &self.cert_chain[..self.cert_chain_size as usize];
         let cert_chain = CertificateChain::parse(cert_chain_buf, digest_size)?;
 
-        let end_entity_cert = new_end_entity_cert(cert_chain.leaf_cert)?;
+        // Validate the certificate chain using the trust authorities loaded
+        // into `validator`.
+        let end_entity_cert = validator.validate(signing_algo, cert_chain)?;
 
-        end_entity_cert.verify_chain_of_trust(
-            self.algorithms.base_asym_algo_selected,
-            cert_chain.intermediate_certs(),
-            root_cert,
-            seconds_since_unix_epoch,
+        // Verify the signature using the end entity cert parsed, used, and
+        // returned by the validator.
+        end_entity_cert.verify_signature(
+            signing_algo,
+            m2_hash.as_ref(),
+            rsp.signature.as_ref(),
         )?;
-
-        if !end_entity_cert.verify_signature(
-            self.algorithms.base_asym_algo_selected,
-            m2_hash,
-            signature,
-        ) {
-            return Err(ChallengeAuthError::InvalidSignature.into());
-        }
 
         Ok(())
     }
