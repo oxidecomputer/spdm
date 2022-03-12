@@ -8,13 +8,12 @@ use core::fmt::Debug;
 use super::{expect, id_auth, RequesterError};
 use crate::config::MAX_CERT_CHAIN_SIZE;
 use crate::crypto::{
-    pki::{self, EndEntityCert, Validator},
+    pki::{EndEntityCert, Validator},
     Digests, Nonce, ProvidedDigests,
 };
 use crate::msgs::{
     capabilities::{ReqFlags, RspFlags},
     challenge::ParseChallengeAuthError,
-    common::DigestSize,
     Algorithms, CertificateChain, Challenge, ChallengeAuth,
     MeasurementHashType, Msg, VersionEntry, HEADER_SIZE,
 };

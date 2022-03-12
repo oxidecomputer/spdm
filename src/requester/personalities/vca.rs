@@ -86,6 +86,7 @@ impl Requester {
     }
 }
 
+// TODO: // Use `derive_more` for the From impls below
 pub enum States {
     Complete,
     Error,
