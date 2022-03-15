@@ -25,11 +25,13 @@ use crate::msgs::Msg;
 use crate::Transcript;
 pub use error::RequesterError;
 
-use crate::config;
-use crate::crypto::{FilledSlot, Signer};
+use crate::config::{MutableSlot, RequesterConfig};
+use crate::crypto::{pki, Digests};
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
 
 use core::convert::From;
+use derive_more::From;
+use tinyvec::SliceVec;
 
 /// We expect a messsage of the given type.
 ///
@@ -48,54 +50,21 @@ pub fn expect<T: Msg>(buf: &[u8]) -> Result<(), RequesterError> {
     }
 }
 
-// Internal data shared between `RequesterInit` and `RequesterSession` states.
-struct RequesterData<'a, S: Signer> {
-    // Do we need more than one of these? Do we expect that different slots for
-    // a responder will have different root certs?
-    root_cert: &'a [u8],
-
-    // Will eventually be used for mutual auth
-    slots: [Option<FilledSlot<'a, S>>; config::NUM_SLOTS],
-
+pub struct Requester<'a, D, V> {
+    config: RequesterConfig<'a, D, V>,
     transcript: Transcript,
+
     // This Option allows us to move between AllStates variants at runtime, without having
     // to take self by value.
     state: Option<AllStates>,
 }
 
-/// The `RequesterInit` state handles the "autonomous" part of the
-/// protocol, as dictated by negotiated capabilities, until a secure session is
-/// established. Once a secure session is established, users can send and
-/// receive application specific messages from the `RequesterSession` state.
-pub struct RequesterInit<'a, S: Signer> {
-    data: RequesterData<'a, S>,
-}
-
-/// In the `RequesterSession` state, the a secure session has been
-/// established and the user can send encrypted messages and request
-/// measurements at will.
-pub struct RequesterSession<'a, S: Signer> {
-    _data: RequesterData<'a, S>,
-}
-
-impl<'a, S: Signer> From<RequesterInit<'a, S>> for RequesterSession<'a, S> {
-    fn from(state: RequesterInit<'a, S>) -> Self {
-        RequesterSession { _data: state.data }
-    }
-}
-
-impl<'a, S: Signer> RequesterInit<'a, S> {
-    pub fn new(
-        root_cert: &'a [u8],
-        slots: [Option<FilledSlot<'a, S>>; config::NUM_SLOTS],
-    ) -> RequesterInit<'a, S> {
-        RequesterInit {
-            data: RequesterData {
-                root_cert,
-                slots,
-                transcript: Transcript::new(),
-                state: Some(version::State {}.into()),
-            },
+impl<'a, D, V> Requester<'a, D, V> {
+    pub fn new(config: RequesterConfig<'a, D, V>) -> Requester<'a, D, V> {
+        Requester {
+            config,
+            transcript: Transcript::new(),
+            state: Some(version::State {}.into()),
         }
     }
 
@@ -109,31 +78,28 @@ impl<'a, S: Signer> RequesterInit<'a, S> {
         &mut self,
         buf: &'b mut [u8],
     ) -> Result<&'b [u8], RequesterError> {
-        let state = self.data.state.as_mut().unwrap();
-        if let AllStates::NewSession = state {
-            return Err(RequesterError::InitializationComplete);
+        if let AllStates::Complete = &self.data.state {
+            return Err(RequesterError::Complete);
         }
-        state.write_req(buf, &mut self.data.transcript)
+        let state = self.data.state.take().unwrap();
+        state.write_req(buf, &self.config, &mut self.data.transcript)
     }
 
     /// The user calls `handle_msg` when a response is received over the
     /// transport.
     ///
-    /// `Ok(true)` will be returned when initialization is complete. At this
-    /// point the user should call the `begin_session` method.
+    /// `Ok(true)` will be returned when the requester state machine has
+    /// reached the `Complete` state.
     pub fn handle_msg<'b>(
         &mut self,
         rsp: &[u8],
     ) -> Result<bool, RequesterError> {
         let state = self.data.state.take().unwrap();
-        match state.handle_msg(
-            rsp,
-            &mut self.data.transcript,
-            &self.data.root_cert,
-        ) {
+        match state.handle_msg(rsp, &mut self.config, &mut self.data.transcript)
+        {
             Ok(next_state) => {
                 self.data.state = Some(next_state);
-                if let Some(AllStates::NewSession) = self.data.state {
+                if let Some(AllStates::Complete) = self.data.state {
                     Ok(true)
                 } else {
                     Ok(false)
@@ -146,11 +112,6 @@ impl<'a, S: Signer> RequesterInit<'a, S> {
         }
     }
 
-    /// Transition to the RequesterSession state
-    pub fn begin_session(self) -> RequesterSession<'a, S> {
-        self.into()
-    }
-
     // Return the current state of the requester
     pub fn state(&self) -> &AllStates {
         self.data.state.as_ref().unwrap()
@@ -160,8 +121,8 @@ impl<'a, S: Signer> RequesterInit<'a, S> {
         &self.data.transcript
     }
 
-    pub fn slots(&self) -> &[Option<FilledSlot<'a, S>>; config::NUM_SLOTS] {
-        &self.data.slots
+    pub fn my_opaque_data(&mut self) -> &mut SliceVec<'a, u8> {
+        self.config.my_opaque_data()
     }
 }
 
@@ -170,56 +131,28 @@ impl<'a, S: Signer> RequesterInit<'a, S> {
 /// It serves to make the internal typestate pattern more egronomic for users,
 /// and hide the details of the SPDM protocol. The protocol states are moved
 /// between based on the capability negotiation of the requester and responder.
+#[derive(From)]
 pub enum AllStates {
-    // A special state that indicates the responder has terminated and the
-    // transport should close its "connection".
     Error,
+    Complete,
     Version(version::State),
     Capabilities(capabilities::State),
     Algorithms(algorithms::State),
     IdAuth(id_auth::State),
     Challenge(challenge::State),
-
-    // TODO: Fill this in with an actual state once sessions are implemented.
-    NewSession,
-}
-
-impl From<version::State> for AllStates {
-    fn from(state: version::State) -> AllStates {
-        AllStates::Version(state)
-    }
-}
-
-impl From<capabilities::State> for AllStates {
-    fn from(state: capabilities::State) -> AllStates {
-        AllStates::Capabilities(state)
-    }
-}
-
-impl From<algorithms::State> for AllStates {
-    fn from(state: algorithms::State) -> AllStates {
-        AllStates::Algorithms(state)
-    }
-}
-
-impl From<id_auth::State> for AllStates {
-    fn from(state: id_auth::State) -> AllStates {
-        AllStates::IdAuth(state)
-    }
-}
-
-impl From<challenge::State> for AllStates {
-    fn from(state: challenge::State) -> AllStates {
-        AllStates::Challenge(state)
-    }
 }
 
 impl AllStates {
-    fn write_req<'a>(
+    fn write_req<'a, 'b, D, V>(
         &mut self,
         buf: &'a mut [u8],
+        config: &RequesterConfig<'b, D, V>,
         transcript: &mut Transcript,
-    ) -> Result<&'a [u8], RequesterError> {
+    ) -> Result<&'a [u8], RequesterError>
+    where
+        D: Digests,
+        V: for<'c> pki::Validator<'c>,
+    {
         match self {
             AllStates::Version(state) => {
                 state.write_get_version(buf, transcript)
@@ -227,47 +160,63 @@ impl AllStates {
             AllStates::Capabilities(state) => state.write_msg(buf, transcript),
             AllStates::Algorithms(state) => state.write_msg(buf, transcript),
             AllStates::IdAuth(state) => {
-                if state.digests.is_none() {
-                    // We need to send the GET_DIGESTS request
-                    state.write_get_digests_msg(buf, transcript)
+                // A requester must a-priori know what slots are filled by a
+                // responder and what algotithms they use. All slots that match
+                // the negotiated algorithm should be retrieved. This enables
+                // functionality like using one slot for measurements and one for
+                // a secure session.
+                //
+                // Here we find the next empty responder slot and send a request
+                // for it. There is guaranteed to be at least one empty slot
+                // because the `handle_msg` method will transition to the next state
+                // otherwise.
+                if let Some(MutableSlot::Empty(slot)) = config
+                    .responder_certs()
+                    .iter()
+                    .filter(|slot| slot.is_empty())
+                    .next()
+                {
+                    state.write_get_certificate_msg(
+                        slot.id,
+                        slot.buf.len(),
+                        buf,
+                        transcript,
+                    )
                 } else {
-                    // TODO: Retrieve certs for all slots that have digests.
-                    // See SPDM 1.2 sec 10.4.1: Connection Behavior after VCA
-                    //
-                    // This requires changes to the id_auth state to not
-                    // automatically transition after retrieving one cert.
-                    //
-                    // Tracked in https://github.com/oxidecomputer/spdm/issues/29
-                    let slot = 0;
-                    state.write_get_certificate_msg(slot, buf, transcript)
+                    panic!("Expected at least one empty slot.")
                 }
             }
             AllStates::Challenge(state) => state.write_msg(buf, transcript),
-            _ => unimplemented!(),
+            AllStates::Complete => Err(RequesterError::Complete),
+            AllStates::Error => Err(RequesterError::Wedged),
         }
     }
 
-    fn handle_msg<'a>(
+    fn handle_msg<'a, D, V>(
         self,
         rsp: &[u8],
+        config: &mut RequesterConfig<'a, D, V>,
         transcript: &mut Transcript,
-        root_cert: &'a [u8],
-    ) -> Result<AllStates, RequesterError> {
+    ) -> Result<AllStates, RequesterError>
+    where
+        D: Digests,
+        V: for<'b> pki::Validator<'b>,
+    {
         match self {
             AllStates::Version(state) => {
                 state.handle_msg(rsp, transcript).map(|s| s.into())
             }
             AllStates::Capabilities(state) => {
-                state.handle_msg(rsp, transcript).map(|s| s.into())
+                let next_state = state.handle_msg(rsp, transcript)?;
+                Self::ensure_responder_capabilities(&state)?;
+                Ok(next_state.into())
             }
             AllStates::Algorithms(mut state) => {
                 state.handle_msg(rsp, transcript).map(|_| {
-                    if state.requester_cap.contains(ReqFlags::CERT_CAP)
-                        && state.responder_cap.contains(RspFlags::CERT_CAP)
-                    {
+                    if state.requester_cap.contains(ReqFlags::CERT_CAP) {
                         id_auth::State::from(state).into()
                     } else {
-                        AllStates::NewSession
+                        AllStates::Complete
                     }
                 })
             }
@@ -287,16 +236,15 @@ impl AllStates {
                 }
             }
             AllStates::Challenge(state) => {
-                // We haven't implemented any other states, so just go to
-                // `NewSession`.
-                state.handle_msg(rsp, transcript, root_cert)?;
-                Ok(AllStates::NewSession)
+                state.handle_msg(rsp, transcript)?;
+                Ok(AllStates::Complete)
             }
-            _ => unimplemented!(),
+            AllStates::Complete => Err(RequesterError::Complete),
+            AllStates::Error => Err(RequesterError::Wedged),
         }
     }
 
-    // Return the name of the current state
+    /// Return the name of the current state
     pub fn name(&self) -> &'static str {
         match self {
             AllStates::Error => "Error",
@@ -306,6 +254,26 @@ impl AllStates {
             AllStates::IdAuth(_) => "IdAuth",
             AllStates::Challenge(_) => "Challenge",
             AllStates::NewSession => "NewSession",
+        }
+    }
+
+    // Ensure that all the capabilities supported by the requester are also
+    // supported by the responder. The requester supported capabilities are
+    // implicitly the required capabilities in this implementation so as to
+    // prevent skipping required message exchanges and reducing security.
+    fn ensure_responder_capabilities(
+        state: &capabilities::State,
+    ) -> Result<(), RequesterError> {
+        // The responder capabilities are a strict superset of the requester
+        // capabilities. Convert the RspFlags into ReqFlags dropping bits that
+        // don't exist in ReqFlags.
+        let rsp_flags =
+            ReqFlags::from_bits_truncate(state.responder_cap.bits());
+        let err_bits = state.requester_cap - rsp_flags;
+        if err_bits.empty() {
+            Ok(())
+        } else {
+            Err(RequesterError::CapabilitiesNotSupportedByResponder(err_bits))
         }
     }
 }

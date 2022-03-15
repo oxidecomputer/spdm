@@ -7,7 +7,7 @@ use crate::msgs::{
     algorithms::{
         ParseAlgorithmsError, ParseBaseAsymAlgoError, ParseBaseHashAlgoError,
     },
-    capabilities::{ParseCapabilitiesError, ParseReqCapabilityError},
+    capabilities::{ParseCapabilitiesError, ParseReqCapabilityError, ReqFlags},
     certificates::{ParseCertificateChainError, ParseCertificateError},
     challenge::ParseChallengeAuthError,
     version::ParseVersionError,
@@ -61,10 +61,6 @@ pub enum RequesterError {
     // Parsing a capability from a string failed
     ParseCapability,
 
-    // Protocol initialization is complete and a secure session now exists.
-    // The user must transition to the `RequesterSession` state.
-    InitializationComplete,
-
     // Parsing a ChallengeAuth message failed
     ParseChallengeAuth(ParseChallengeAuthError),
 
@@ -82,6 +78,10 @@ pub enum RequesterError {
 
     // The protocol has already completed and a new request arrived.
     Complete,
+    // Capabilities selected by the requester are not supported by the responder
+    // We treat all requester capabilities as requirements to prevent a
+    // malicious responder from skipping over required messages.
+    CapabilitiesNotSupportedByResponder(ReqFlags),
 }
 
 impl From<BufferFullError> for RequesterError {

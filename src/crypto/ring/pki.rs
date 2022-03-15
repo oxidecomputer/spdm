@@ -8,7 +8,7 @@ use heapless::Vec;
 use crate::msgs::algorithms::BaseAsymAlgo;
 use crate::msgs::certificates::CertificateChain;
 
-use super::super::pki::{bin_to_der, max_encoded_size, EndEntityCert, Error};
+use super::super::pki::{PkiError, bin_to_der, max_encoded_size, EndEntityCert, Error};
 
 // This is purposefully hardcoded as device certs mostly will not expire and we
 // need *some* valid time. Furthermore, during early boot we will not have
@@ -49,23 +49,24 @@ impl<'a> WebpkiValidator<'a> {
     /// Create a validator from a set of DER encoded X.509v3 root certs
     pub fn try_from_der_root_certs(
         root_certs: &[&[u8]],
-    ) -> Result<WebpkiValidator, webpki::Error> {
+    ) -> Result<WebpkiValidator, PkiError> {
 
-        let trust_anchors = root_certs.iter().map(|cert| webpki::TrustAnchor::try_from_cert_der(cert)?).collect();
+        let trust_anchors = root_certs.iter().map(|cert|
+webpki::TrustAnchor::try_from_cert_der(cert).map_err(|_|PkiError::InvalidTrustAnchor))?.collect();
 
         Ok(WebpkiValidator { trust_anchors })
     }
 }
 
 impl<'a> Validator for WebpkiValidator<'a> {
-    type Error = webpki::Error;
     type EndEntityCert = WebpkiEndEntityCert<'a>;
 
     fn validate(
         algo: BaseAsymAlgo,
         cert_chain: CertificateChain<'a>,
     ) -> Result<Self::EndEntityCert, Self::Error> {
-        let cert = webpki::EndEntityCert::try_from(cert_chain.leaf_cert)?;
+        let cert =
+webpki::EndEntityCert::try_from(cert_chain.leaf_cert).map_err(|_|InvalidEndEntityCert)?;
 
         let time = webpki::Time::from_seconds_since_unix_epoch(
             UNIX_TIME
@@ -82,7 +83,7 @@ impl<'a> Validator for WebpkiValidator<'a> {
             &server_trust_anchors,
             cert_chain.intermediate_certs(),
             time,
-        )?;
+        ).map_err(|_| PkiError::CertValidationFailed)?;
 
         Ok(WebpkiEndEntityCert { cert })
     }
@@ -94,7 +95,6 @@ pub struct WebpkiEndEntityCert<'a> {
 }
 
 impl<'a> EndEntityCert<'a> for WebpkiEndEntityCert<'a> {
-    type Error = webpki::Error;
 
     fn verify_signature(
         &self,
@@ -105,6 +105,7 @@ impl<'a> EndEntityCert<'a> for WebpkiEndEntityCert<'a> {
         let algo = spdm_to_webpki(algorithm);
         let mut der = [0u8; max_encoded_size()];
         let size = bin_to_der(signature, &mut der[..]);
-        self.cert.verify_signature(algo, msg, &der[..size])
+        self.cert.verify_signature(algo, msg, &der[..size]).map_err(|_|
+PkiError::InvalidSignature);
     }
 }

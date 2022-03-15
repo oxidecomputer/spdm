@@ -4,8 +4,7 @@
 
 use core::convert::From;
 
-use super::{algorithms, expect, RequesterError};
-use crate::config::{MAX_CERT_CHAIN_SIZE, NUM_SLOTS};
+use super::{algorithms, expect, MutableSlot, RequesterError};
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
 use crate::msgs::{
     Algorithms, Certificate, Digests, GetCertificate, GetDigests, Msg,
@@ -35,12 +34,6 @@ pub struct State {
     pub responder_ct_exponent: u8,
     pub responder_cap: RspFlags,
     pub algorithms: Algorithms,
-
-    // GET_DIGESTS and GET_CERTIFICATE messages will not be issued if the public
-    // key of the responder was provisioned in a trusted environment or if
-    // CAP_PSK is enabled.
-    pub digests: Option<Digests>,
-    pub cert_chain: Option<Certificate>,
 }
 
 impl From<algorithms::State> for State {
@@ -52,8 +45,6 @@ impl From<algorithms::State> for State {
             responder_ct_exponent: s.responder_ct_exponent,
             responder_cap: s.responder_cap,
             algorithms: s.algorithms.unwrap(),
-            digests: None,
-            cert_chain: None,
         }
     }
 }
@@ -98,17 +89,16 @@ impl State {
     pub fn write_get_certificate_msg<'a>(
         &mut self,
         slot: u8,
+        max_buf_size: usize,
         buf: &'a mut [u8],
         transcript: &mut Transcript,
     ) -> Result<&'a [u8], RequesterError> {
-        // TODO: Validate rather than assert in requester.rs ?
-        assert!((slot as usize) < NUM_SLOTS);
         // TODO: Allow retrieiving cert chains from offsets. We assume for now
         // buffers are large enough to retrieve them in one round trip.
         let msg = GetCertificate {
             slot,
             offset: 0,
-            length: MAX_CERT_CHAIN_SIZE as u16,
+            length: u16::try_from(max_buf_size).unwrap(),
         };
         let size = msg.write(buf)?;
         transcript.extend(&buf[..size])?;
@@ -116,14 +106,16 @@ impl State {
     }
 
     // Handle a CERTFICATE msg.
-    pub fn handle_certificate(
+    pub fn handle_certificate<'a>(
         &mut self,
         buf: &[u8],
         transcript: &mut Transcript,
+        responder_certs: &'a mut [MutableSlot<'a>],
     ) -> Result<(), RequesterError> {
         expect::<Certificate>(buf)?;
-        let cert = Certificate::parse_body(&buf[HEADER_SIZE..])?;
-        self.cert_chain = Some(cert);
+
+        // Read the cert chain into the propper `responder_certs` entry.
+        Certificate::parse_body(&buf[HEADER_SIZE..], responder_certs)?;
         transcript.extend(buf)?;
         Ok(())
     }

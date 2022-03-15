@@ -4,7 +4,7 @@
 
 use core::cmp::PartialEq;
 
-use crate::config::{MAX_CERT_CHAIN_DEPTH, MAX_CERT_CHAIN_SIZE};
+use crate::config::MutableSlot;
 
 use super::common::DigestSize;
 use super::encoding::{BufferFullError, ReadError, Reader, Writer};
@@ -53,15 +53,15 @@ impl GetCertificate {
 }
 
 /// A CERTIFICATE message sent by a responder
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Certificate {
+#[derive(Debug, PartialEq, Eq)]
+pub struct Certificate<'a> {
     pub slot: u8,
     pub portion_length: u16,
     pub remainder_length: u16,
-    pub cert_chain: [u8; MAX_CERT_CHAIN_SIZE],
+    pub cert_chain: &'a [u8],
 }
 
-impl Msg for Certificate {
+impl<'a> Msg for Certificate<'a> {
     const NAME: &'static str = "CERTIFICATE";
 
     const SPDM_VERSION: u8 = 0x11;
@@ -82,6 +82,7 @@ impl Msg for Certificate {
 #[derive(Debug, PartialEq)]
 pub enum ParseCertificateError {
     TooLarge,
+    NoEmptyResponderSlot,
     Read(ReadError),
 }
 
@@ -91,24 +92,41 @@ impl From<ReadError> for ParseCertificateError {
     }
 }
 
-impl Certificate {
+impl<'a> Certificate<'a> {
+    // We don't actually parse into a Certificate messsage. We want to read the
+    // cert chain into an `EmptySlot` such that a `FullSlot` is created.
+    // For now we still assume that we get the whole cert chain in one message.
     pub fn parse_body(
         buf: &[u8],
-    ) -> Result<Certificate, ParseCertificateError> {
+        responder_certs: &'a mut [MutableSlot<'a>],
+    ) -> Result<(), ParseCertificateError> {
         let mut r = Reader::new(buf);
-        let slot = r.get_byte()?;
+        let slot_id = r.get_byte()?;
         r.skip_reserved(1)?;
+
+        // Find the proper empty slot.
+        // In the future we may allow overwriting full slots, but not now.
+        let slot = responder_certs
+            .iter_mut()
+            .find(|slot| slot.is_empty() && slot_id == slot.id());
+
+        if slot.is_none() {
+            return Err(ParseCertificateError::NoEmptyResponderSlot);
+        }
+        let mut slot = slot.unwrap();
+
         let portion_length = r.get_u16()?;
-        if portion_length as usize > MAX_CERT_CHAIN_SIZE {
+        if portion_length as usize > slot.capacity() {
+            // We must swap back in the empty slot so we don't lose it.
             return Err(ParseCertificateError::TooLarge);
         }
         let remainder_length = r.get_u16()?;
-        let mut cert_chain = [0u8; MAX_CERT_CHAIN_SIZE];
-        r.get_slice(portion_length as usize, &mut cert_chain)?;
-
-        Ok(Certificate { slot, portion_length, remainder_length, cert_chain })
+        slot.fill(&mut r, portion_length as usize)?;
+        Ok(())
     }
 }
+
+const MAX_CERT_CHAIN_DEPTH: usize = 10;
 
 /// Represents a complete certificate chain. This may result from the
 /// concatenation of buffers from multiple `Certificate` messages. For now we

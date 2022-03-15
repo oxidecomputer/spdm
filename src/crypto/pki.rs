@@ -6,7 +6,13 @@ use crate::config::MAX_SIGNATURE_SIZE;
 use crate::msgs::algorithms::BaseAsymAlgo;
 use crate::msgs::certificates::CertificateChain;
 
-use core::fmt::Debug;
+#[derive(Debug, PartialEq)]
+pub enum PkiError {
+    InvalidTrustAnchor,
+    InvalidEndEntityCert,
+    CertValidationFailed,
+    InvalidSignature,
+}
 
 /// A Validator represents *all* trust anchors (root certificates) used to endorse
 /// any end entity (leaf) certificates via a certificate chain.
@@ -19,13 +25,12 @@ use core::fmt::Debug;
 /// of an end entity cert, such as that they derive from a shared DeviceId
 /// public key. or that they have certain information encoded in the cert.
 pub trait Validator<'a> {
-    type Error: Debug + PartialEq;
     type EndEntityCert: EndEntityCert<'a>;
 
     fn validate(
         algorithm: BaseAsymAlgo,
         cert_chain: CertificateChain<'a>,
-    ) -> Result<Self::EndEntityCert, Self::Error>;
+    ) -> Result<Self::EndEntityCert, PkiError>;
 }
 
 /// An EndEntityCert represents the leaf certificate in a certificate chain.
@@ -37,13 +42,11 @@ pub trait Validator<'a> {
 /// already been validated. Therefore the only thing they need to be used for is
 /// verifying signatures.
 pub trait EndEntityCert<'a> {
-    type Error: Debug + PartialEq;
-
     fn verify_signature(
         algorithm: BaseAsymAlgo,
         msg: &[u8],
         signature: &[u8],
-    ) -> Result<(), Self::Error>;
+    ) -> Result<(), PkiError>;
 }
 
 // DER tags required for this module

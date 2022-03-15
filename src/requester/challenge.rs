@@ -24,10 +24,7 @@ use crate::Transcript;
 const PROVISIONED_MASK: u8 = 0x0F;
 
 #[derive(Debug, PartialEq)]
-pub enum ChallengeAuthError<E>
-where
-    E: Debug + PartialEq,
-{
+pub enum ChallengeAuthError {
     /// The responder did not indicate the slot which was requested
     IncorrectSlot,
 
@@ -45,17 +42,17 @@ where
     ParseChallengeAuth(ParseChallengeAuthError),
 
     /// Cert chain validation failed
-    Pki(E),
+    Pki(PkiError),
 }
 
-impl<E> From<ParseChallengeAuthError> for ChallengeAuthError<E> {
+impl From<ParseChallengeAuthError> for ChallengeAuthError {
     fn from(e: ParseChallengeAuthError) -> Self {
         ChallengeAuthError::ParseChallengeAuth(e)
     }
 }
 
-impl<E> From<E> for ChallengeAuthError<E> {
-    fn from(e: E) -> Self {
+impl From<E> for ChallengeAuthError {
+    fn from(e: PkiError) -> Self {
         ChallengeAuthError::Pki(e)
     }
 }
