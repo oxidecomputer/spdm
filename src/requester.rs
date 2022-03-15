@@ -16,7 +16,6 @@ pub mod algorithms;
 pub mod capabilities;
 pub mod challenge;
 pub mod id_auth;
-pub mod personalities;
 pub mod version;
 
 mod error;
