@@ -360,6 +360,7 @@ impl<'a> CertificateChain<'a> {
 mod tests {
     use core::convert::TryFrom;
     use rcgen;
+    use tinyvec::SliceVec;
 
     #[cfg(feature = "webpki")]
     use std::time::SystemTime;
@@ -368,6 +369,7 @@ mod tests {
 
     use super::super::HEADER_SIZE;
     use super::*;
+    use crate::msgs::algorithms::BaseAsymAlgo;
     use test_utils::certs::*;
 
     #[test]
@@ -382,21 +384,38 @@ mod tests {
 
     #[test]
     fn certificate_round_trip() {
+        let full_cert_chain = [0xDEu8; 800];
+        let empty_cert_chain = [0x0; 1000];
+
+        let responder_filled_slot = Slot::new(
+            SlotState::Full,
+            0,
+            BaseAsymAlgo::ECDSA_ECC_NIST_P256,
+            SliceVec::from(full_cert_chain),
+        );
+
+        let responder_empty_slot = Slot::new(
+            SlotState::Empty,
+            0,
+            BaseAsymAlgo::ECDSA_ECC_NIST_P256,
+            SliceVec::from(empty_cert_chain),
+        );
+        responder_empty_slot.clear();
+        let responder_certs = &mut [&responder_empty_slot];
+
         let mut msg = Certificate {
-            slot: 0,
+            slot_id: 0,
             portion_length: 800,
             remainder_length: 0,
-            cert_chain: [0u8; MAX_CERT_CHAIN_SIZE],
+            cert_chain: &responder_filled_slot,
         };
-        // Ensure the remaining bytes are 0s, since they aren't part of the
-        // simulated data.
-        msg.cert_chain[800..]
-            .copy_from_slice(&[0u8; MAX_CERT_CHAIN_SIZE - 800]);
 
-        let mut buf = [0u8; 1200];
+        let mut buf = [0u8; 1000];
         let _ = msg.write(&mut buf).unwrap();
 
-        let msg2 = Certificate::parse_body(&buf[HEADER_SIZE..]).unwrap();
+        let msg2 =
+            Certificate::parse_body(&buf[HEADER_SIZE..], responder_certs)
+                .unwrap();
         assert_eq!(msg, msg2);
     }
 
