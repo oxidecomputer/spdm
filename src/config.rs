@@ -10,176 +10,81 @@ use crate::msgs::encoding::{ReadError, Reader};
 use core::mem;
 use tinyvec::SliceVec;
 
-// This is the size in bytes of the largest buffer required for a signature
-// using the base asymmetric signing algorithms in the SPDM 1.2 spec,
-// not-including RSA.
-//
-// See Table 15, Byte offset: 8, Field: BaseAsymAlgo in the SPDM 1.2 spec
+/// This is the size in bytes of the largest buffer required for a signature
+/// using the base asymmetric signing algorithms in the SPDM 1.2 spec,
+/// not-including RSA.
+///
+/// See Table 15, Byte offset: 8, Field: BaseAsymAlgo in the SPDM 1.2 spec
 pub const MAX_SIGNATURE_SIZE: usize = 132;
 
-// This is the size in bytes of the largest buffer required for a digest
-// See Table 15, Byte offset: 12, Field: BaseHashAlgo in the SPDM 1.2 spec
+/// This is the size in bytes of the largest buffer required for a digest
+/// See Table 15, Byte offset: 12, Field: BaseHashAlgo in the SPDM 1.2 spec
 pub const MAX_DIGEST_SIZE: usize = 64;
 
-// A slot contains a certificate chain. It can be either full or empty.
-pub enum MutableSlot<'a> {
-    Full(FilledSlot<'a>),
-    Empty(EmptySlot<'a>),
-
-    // A value used to allow mutation of an enum in place.
-    // An application should never see this value.
-    // See option 3: https://users.rust-lang.org/t/mutate-enum-in-place/18785/2
-    Temporary,
+pub enum SlotState {
+    /// There is a full cert chain in the slot
+    Full,
+    /// There is no cert chain in the slot
+    Empty,
+    /// The cert chain has been partially retrieved in a CERTIFICATE msg
+    /// This isn't yet in use.
+    Partial,
 }
 
-impl<'a> MutableSlot<'a> {
-    pub fn is_full(&self) -> bool {
-        if let MutableSlot::Full(_) = self {
-            true
-        } else {
-            false
-        }
+/// Slots contain certificate chains or are placeholders for certificate
+/// chains. There are 8 slot ids ranging from 0 to 7. Each slot's algorithm is
+/// known a-priori whether it is for a requester or responder.
+pub struct Slot<'a> {
+    state: SlotState,
+    id: u8,
+    algo: BaseAsymAlgo,
+    buf: SliceVec<'a, u8>,
+}
+
+impl<'a> Slot<'a> {
+    fn new(
+        state: SlotState,
+        id: u8,
+        algo: BaseAsymAlgo,
+        buf: SliceVec<'a, u8>,
+    ) -> Slot<'a> {
+        Slot { state, id, algo, buf }
+    }
+    pub fn as_slice(&self) -> &[u8] {
+        self.buf.as_slice()
     }
 
-    pub fn is_empty(&self) -> bool {
-        !self.is_full()
+    pub fn len(&self) -> usize {
+        self.buf.len()
     }
 
     pub fn id(&self) -> u8 {
-        match self {
-            MutableSlot::Full(f) => f.id(),
-            MutableSlot::Empty(e) => e.id(),
-            _ => panic!("Cannot be called in temporary state!"),
-        }
+        self.id
     }
 
-    pub fn capacity(&self) -> usize {
-        match self {
-            MutableSlot::Full(f) => f.buf.len(),
-            MutableSlot::Empty(e) => e.buf.len(),
-            _ => panic!("Cannot be called in a temporary state!"),
-        }
+    pub fn algo(&self) -> BaseAsymAlgo {
+        self.algo
     }
 
-    // Fill in the empty slot and turn it into a filled slot.
-    // Panic if the `self` is not empty.
-    //
-    // Invariant: Ensure that we never return from this method with the slot set
-    // to "Temporary".
-    pub(crate) fn fill<'b>(
+    pub fn fill<'b>(
         &mut self,
+        reader: &mut Reader<'b>,
         len: usize,
-        r: &mut Reader<'b>,
     ) -> Result<(), ReadError> {
-        match mem::replace(self, MutableSlot::Temporary) {
-            MutableSlot::Empty(empty_slot) => {
-                if let Err(e) = r.get_slice(len, empty_slot.buf) {
-                    // Must restore the empty slot as self.
-                    *self = MutableSlot::Empty(empty_slot);
-                    Err(e)
-                } else {
-                    *self = MutableSlot::Full(FilledSlot {
-                        id: self.id,
-                        algo: self.algo,
-                        len,
-                        buf: self.buf,
-                    });
-                    Ok(())
-                }
-            }
-            _ => panic!("Cannot fill a slot that is not empty!"),
+        // We don't currently allow partial fills
+        assert!(self.state == SlotState::Empty);
+        self.buf.set_len(len);
+        if let Err(e) = reader.get_slice(len, self.buf.as_mut_slice()) {
+            // Maintain invariant that len = 0 when state = SliceState::Empty
+            self.buf.set_len(0);
+            return Err(e);
         }
-    }
-}
-
-// A slot that does not yet contain a certificate chain
-//
-// All requesters are configured with a set of empty slots.
-//
-// If `CERT_CAP` is enabled, then the slots will be filled when the
-// `CERTIFICATE` messages are received. Upon filling the slot will automatically
-// be converted to a FilledSlot.
-pub struct EmptySlot<'a> {
-    id: u8,
-    algo: BaseAsymAlgo,
-    buf: &'a mut [u8],
-}
-
-impl<'a> EmptySlot<'a> {
-    fn new(id: u8, algo: BaseAsymAlgo, buf: &'a mut [u8]) -> EmptySlot<'a> {
-        EmptySlot { id, algo, buf }
+        self.state = SlotState::Full;
+        Ok(())
     }
 
-    pub fn id(&self) -> u8 {
-        self.id
-    }
-
-    pub fn algo(&self) -> BaseAsymAlgo {
-        self.algo
-    }
-
-    // Copy `len` bytes from a Reader into a slot
-    pub(crate) fn fill<'b>(
-        self,
-        len: usize,
-        r: &mut Reader<'b>,
-    ) -> Result<FilledSlot<'a>, ReadError> {
-        r.get_slice(len, self.buf)?;
-        Ok(FilledSlot { id: self.id, algo: self.algo, len, buf: self.buf })
-    }
-}
-
-// A slot that holds a certificate chain
-pub struct FilledSlot<'a> {
-    id: u8,
-    algo: BaseAsymAlgo,
-    len: usize,
-    buf: &'a mut [u8],
-}
-
-impl<'a> FilledSlot<'a> {
-    pub fn as_slice(&self) -> &[u8] {
-        &self.buf[..self.len]
-    }
-
-    pub fn id(&self) -> u8 {
-        self.id
-    }
-
-    pub fn algo(&self) -> BaseAsymAlgo {
-        self.algo
-    }
-
-    pub(crate) fn clear(self) -> EmptySlot<'a> {
-        // Don't bother zeroing the data. It can't be read from EmptySlot<'a>
-        // and it's public information anyway.
-        EmptySlot { id: self.id, algo: self.algo, buf: self.buf }
-    }
-}
-
-// A slot filled with a local cert, and not one that needs to be retrieved from
-// a responder.
-pub struct ImmutableSlot<'a> {
-    id: u8,
-    algo: BaseAsymAlgo,
-    buf: &'a [u8],
-}
-
-impl<'a> ImmutableSlot<'a> {
-    pub fn new(id: u8, algo: BaseAsymAlgo, buf: &'a [u8]) -> ImmutableSlot<'a> {
-        ImmutableSlot { id, algo, buf }
-    }
-
-    pub fn as_slice(&self) -> &[u8] {
-        &self.buf
-    }
-
-    pub fn id(&self) -> u8 {
-        self.id
-    }
-
-    pub fn algo(&self) -> BaseAsymAlgo {
-        self.algo
+    pub(crate) fn clear(&mut self) {
+        self.buf.clear();
     }
 }
 
@@ -225,11 +130,11 @@ pub struct RequesterConfig<'a, D, V> {
 
     /// This is only needed for mutual authentication, which we don't currently
     /// support. It's fine to leave it blank for now.
-    my_certs: &'a [ImmutableSlot<'a>],
+    my_certs: &'a [Slot<'a>],
 
     /// This is data received from the remote side of the connection and will
     /// be deserialized into the provided buffer.
-    responder_certs: &'a mut [MutableSlot<'a>],
+    responder_certs: &'a mut [Slot<'a>],
 
     // Some mess
     my_opaque_data: SliceVec<'a, u8>,
@@ -249,8 +154,8 @@ where
     pub fn new(
         digests: Option<D>,
         validator: Option<V>,
-        my_certs: &'a MutableSlot<'a>,
-        responder_certs: &'a [MutableSlot<'a>],
+        my_certs: &'a Slot<'a>,
+        responder_certs: &'a [Slot<'a>],
         my_opaque_data: SliceVec<'a, u8>,
         responder_opaque_data: SliceVec<'a, u8>,
         capabilities: ReqFlags,
@@ -268,7 +173,7 @@ where
         config.validate()
     }
 
-    pub(crate) fn responder_certs(&self) -> &'a [MutableSlot<'a>] {
+    pub(crate) fn responder_certs(&self) -> &'a [Slot<'a>] {
         self.responder_certs
     }
 
@@ -324,20 +229,10 @@ where
         }
 
         for slot in &self.responder_certs {
-            match slot {
-                MutableSlot::Full(s) => {
-                    if s.algo().bits.count_ones() != 1 {
-                        return Err(
-                    RequesterConfigError::SlotsMustHaveExactlyOneAlgoSelected);
-                    }
-                }
-                MutableSlot::Empty(s) => {
-                    if s.algo().bits.count_ones() != 1 {
-                        return Err(
+            if slot.algo().bits.count_ones() != 1 {
+                return Err(
                     RequesterConfigError::SlotsMustHaveExactlyOneAlgoSelected,
                 );
-                    }
-                }
             }
         }
 

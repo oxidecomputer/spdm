@@ -4,7 +4,7 @@
 
 use core::convert::From;
 
-use super::{algorithms, expect, MutableSlot, RequesterError};
+use super::{algorithms, expect, RequesterError, Slot};
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
 use crate::msgs::{
     Algorithms, Certificate, Digests, GetCertificate, GetDigests, Msg,
@@ -86,10 +86,9 @@ impl State {
 
     /// Write a GET_CERTIFICATE msg to the buffer and record it in the
     /// transcript.
-    pub fn write_get_certificate_msg<'a>(
+    pub fn write_get_certificate_msg<'a, 'b>(
         &mut self,
-        slot: u8,
-        max_buf_size: usize,
+        slot: &'b Slot<'b>,
         buf: &'a mut [u8],
         transcript: &mut Transcript,
     ) -> Result<&'a [u8], RequesterError> {
@@ -98,7 +97,7 @@ impl State {
         let msg = GetCertificate {
             slot,
             offset: 0,
-            length: u16::try_from(max_buf_size).unwrap(),
+            length: u16::try_from(slot.capacity()).unwrap(),
         };
         let size = msg.write(buf)?;
         transcript.extend(&buf[..size])?;
@@ -110,13 +109,14 @@ impl State {
         &mut self,
         buf: &[u8],
         transcript: &mut Transcript,
-        responder_certs: &'a mut [MutableSlot<'a>],
-    ) -> Result<(), RequesterError> {
+        responder_certs: &'a mut [Slot<'a>],
+    ) -> Result<Certificate, RequesterError> {
         expect::<Certificate>(buf)?;
 
         // Read the cert chain into the propper `responder_certs` entry.
-        Certificate::parse_body(&buf[HEADER_SIZE..], responder_certs)?;
+        let cert =
+            Certificate::parse_body(&buf[HEADER_SIZE..], responder_certs)?;
         transcript.extend(buf)?;
-        Ok(())
+        Ok(cert)
     }
 }

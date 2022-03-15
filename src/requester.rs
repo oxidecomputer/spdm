@@ -24,7 +24,7 @@ use crate::msgs::Msg;
 use crate::Transcript;
 pub use error::RequesterError;
 
-use crate::config::{MutableSlot, RequesterConfig};
+use crate::config::{RequesterConfig, Slot, SlotState};
 use crate::crypto::{pki, Digests};
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
 
@@ -169,21 +169,13 @@ impl AllStates {
                 // for it. There is guaranteed to be at least one empty slot
                 // because the `handle_msg` method will transition to the next state
                 // otherwise.
-                if let Some(MutableSlot::Empty(slot)) = config
+                let slot = config
                     .responder_certs()
                     .iter()
-                    .filter(|slot| slot.is_empty())
+                    .filter(|slot| slot.state == SlotState::Empty)
                     .next()
-                {
-                    state.write_get_certificate_msg(
-                        slot.id,
-                        slot.buf.len(),
-                        buf,
-                        transcript,
-                    )
-                } else {
-                    panic!("Expected at least one empty slot.")
-                }
+                    .unwrap();
+                state.write_get_certificate_msg(slot, buf, transcript)
             }
             AllStates::Challenge(state) => state.write_msg(buf, transcript),
             AllStates::Complete => Err(RequesterError::Complete),

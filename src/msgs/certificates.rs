@@ -4,7 +4,7 @@
 
 use core::cmp::PartialEq;
 
-use crate::config::MutableSlot;
+use crate::config::{Slot, SlotState};
 
 use super::common::DigestSize;
 use super::encoding::{BufferFullError, ReadError, Reader, Writer};
@@ -55,10 +55,10 @@ impl GetCertificate {
 /// A CERTIFICATE message sent by a responder
 #[derive(Debug, PartialEq, Eq)]
 pub struct Certificate<'a> {
-    pub slot: u8,
+    pub slot_id: u8,
     pub portion_length: u16,
     pub remainder_length: u16,
-    pub cert_chain: &'a [u8],
+    pub cert_chain: &'a Slot<'a>,
 }
 
 impl<'a> Msg for Certificate<'a> {
@@ -71,11 +71,11 @@ impl<'a> Msg for Certificate<'a> {
     type WriteError = BufferFullError;
 
     fn write_body(&self, w: &mut Writer) -> Result<usize, BufferFullError> {
-        w.put(self.slot)?;
+        w.put(self.slot_id)?;
         w.put_reserved(1)?;
         w.put_u16(self.portion_length)?;
         w.put_u16(self.remainder_length)?;
-        w.extend(&self.cert_chain[..self.portion_length as usize])
+        w.extend(&self.cert_chain.as_slice()[..self.portion_length as usize])
     }
 }
 
@@ -83,6 +83,10 @@ impl<'a> Msg for Certificate<'a> {
 pub enum ParseCertificateError {
     TooLarge,
     NoEmptyResponderSlot,
+
+    // This is only temporary. Eventually we will support sending certificates
+    // in chunks.
+    PartialCertificatesNotSupported,
     Read(ReadError),
 }
 
@@ -93,23 +97,19 @@ impl From<ReadError> for ParseCertificateError {
 }
 
 impl<'a> Certificate<'a> {
-    // We don't actually parse into a Certificate messsage. We want to read the
-    // cert chain into an `EmptySlot` such that a `FullSlot` is created.
-    // For now we still assume that we get the whole cert chain in one message.
     pub fn parse_body(
         buf: &[u8],
-        responder_certs: &'a mut [MutableSlot<'a>],
-    ) -> Result<(), ParseCertificateError> {
+        responder_certs: &'a mut [Slot<'a>],
+    ) -> Result<Certificate<'a>, ParseCertificateError> {
         let mut r = Reader::new(buf);
         let slot_id = r.get_byte()?;
         r.skip_reserved(1)?;
 
         // Find the proper empty slot.
         // In the future we may allow overwriting full slots, but not now.
-        let slot = responder_certs
-            .iter_mut()
-            .find(|slot| slot.is_empty() && slot_id == slot.id());
-
+        let slot = responder_certs.iter_mut().find(|slot| {
+            slot.state == SlotState::Empty && slot_id == slot.id()
+        });
         if slot.is_none() {
             return Err(ParseCertificateError::NoEmptyResponderSlot);
         }
@@ -117,12 +117,19 @@ impl<'a> Certificate<'a> {
 
         let portion_length = r.get_u16()?;
         if portion_length as usize > slot.capacity() {
-            // We must swap back in the empty slot so we don't lose it.
             return Err(ParseCertificateError::TooLarge);
         }
         let remainder_length = r.get_u16()?;
-        slot.fill(&mut r, portion_length as usize)?;
-        Ok(())
+        if remainder_length != 0 {
+            return Err(ParseCertificateError::PartialCertificatesNotSupported);
+        }
+        slot.fill(&mut r, usize::from(portion_length))?;
+        Ok(Certificate {
+            slot_id,
+            portion_length,
+            remainder_length,
+            cert_chain: slot,
+        })
     }
 }
 
