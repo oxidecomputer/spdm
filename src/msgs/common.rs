@@ -27,13 +27,22 @@ impl From<ParseOpaqueElementError> for ParseOpaqueDataError {
     }
 }
 
+// We limit the size of the opaque data used here for simplicity.
+// We likely aren't going to need this anytime soon. The vendor defined opaque
+// data, essentially a blob, is what want now. We can revisit this impl later..
+//
+// The max size of opaque data fields in the 1.2 spec is 1024 bytes. We just go
+// ahead and allow 1 element of size 800.
+const MAX_OPAQUE_ELEMENTS: usize = 1;
+const MAX_OPAQUE_ELEMENT_DATA_SIZE: usize = 800;
+
 /// General opaque data format used in other messages.
 ///
 /// Table 92 From section 14 in SPDM spec version 1.2.0
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct OpaqueData {
     total_elements: u8,
-    elements: [OpaqueElement; config::MAX_OPAQUE_ELEMENTS],
+    elements: [OpaqueElement; MAX_OPAQUE_ELEMENTS],
 }
 
 impl OpaqueData {
@@ -55,8 +64,7 @@ impl OpaqueData {
     pub fn read(r: &mut Reader) -> Result<OpaqueData, ParseOpaqueDataError> {
         let total_elements = r.get_byte()?;
         r.skip_reserved(3)?;
-        let mut elements =
-            [OpaqueElement::default(); config::MAX_OPAQUE_ELEMENTS];
+        let mut elements = [OpaqueElement::default(); MAX_OPAQUE_ELEMENTS];
         for i in 0..total_elements as usize {
             elements[i] = OpaqueElement::read(r)?;
         }
@@ -117,7 +125,7 @@ pub struct OpaqueElement {
 
     // Defined by the vendor or standards body
     data_len: u16,
-    data: [u8; config::MAX_OPAQUE_ELEMENT_DATA_SIZE],
+    data: [u8; MAX_OPAQUE_ELEMENT_DATA_SIZE],
 }
 
 // We can't derive PartialEq because data may only be
@@ -140,7 +148,7 @@ impl Default for OpaqueElement {
             registry_id: VendorRegistryId::Dmtf,
             vendor_id: VendorId::Empty,
             data_len: 0,
-            data: [0u8; config::MAX_OPAQUE_ELEMENT_DATA_SIZE],
+            data: [0u8; MAX_OPAQUE_ELEMENT_DATA_SIZE],
         }
     }
 }
@@ -191,7 +199,7 @@ impl OpaqueElement {
 
         let vendor_id = VendorId::read(r, vendor_id_len)?;
         let data_len = r.get_u16()?;
-        let mut data = [0u8; config::MAX_OPAQUE_ELEMENT_DATA_SIZE];
+        let mut data = [0u8; MAX_OPAQUE_ELEMENT_DATA_SIZE];
         r.get_slice(data_len as usize, &mut data)?;
         let bytes_read = 4 + vendor_id_len as usize + data_len as usize;
         r.skip_reserved(Self::padding(bytes_read))?;
@@ -518,13 +526,13 @@ mod tests {
                 registry_id: VendorRegistryId::Dmtf,
                 vendor_id: VendorId::Empty,
                 data_len: 1,
-                data: [1u8; config::MAX_OPAQUE_ELEMENT_DATA_SIZE],
+                data: [1u8; MAX_OPAQUE_ELEMENT_DATA_SIZE],
             },
             OpaqueElement {
                 registry_id: VendorRegistryId::Tcg,
                 vendor_id: VendorId::U16(0x2222),
                 data_len: 4,
-                data: [4u8; config::MAX_OPAQUE_ELEMENT_DATA_SIZE],
+                data: [4u8; MAX_OPAQUE_ELEMENT_DATA_SIZE],
             },
         ];
         let data = OpaqueData { total_elements: 2, elements };
@@ -545,7 +553,7 @@ mod tests {
             registry_id: VendorRegistryId::Tcg,
             vendor_id: VendorId::Empty,
             data_len: 4,
-            data: [4u8; config::MAX_OPAQUE_ELEMENT_DATA_SIZE],
+            data: [4u8; MAX_OPAQUE_ELEMENT_DATA_SIZE],
         };
 
         let mut buf = [0u8; 1024];
@@ -559,7 +567,7 @@ mod tests {
             registry_id: VendorRegistryId::Tcg,
             vendor_id: VendorId::U16(0x1111),
             data_len: 4,
-            data: [4u8; config::MAX_OPAQUE_ELEMENT_DATA_SIZE],
+            data: [4u8; MAX_OPAQUE_ELEMENT_DATA_SIZE],
         };
 
         let mut buf = [0u8; 1024];
