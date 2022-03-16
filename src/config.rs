@@ -20,6 +20,9 @@ pub const MAX_SIGNATURE_SIZE: usize = 132;
 /// See Table 15, Byte offset: 12, Field: BaseHashAlgo in the SPDM 1.2 spec
 pub const MAX_DIGEST_SIZE: usize = 64;
 
+/// The number of possible slots in the SPDM
+pub const NUM_SLOTS: usize = 8;
+
 /// The state of a slot holding a certificate chain.
 ///
 /// A local slot is always full. A slot that is retrieved from requester or
@@ -121,6 +124,14 @@ pub enum RequesterConfigError {
 
     /// The provided algorithm is not supported.
     AlgorithmNotSupported(BaseAsymAlgo),
+
+    /// Each slot must use a unique algorithm
+    /// This is necessary so the implementation can choose which slot to use
+    /// based on the selected algorithm.
+    ///
+    /// It's anticipated that different requesters can chose different slots
+    /// depending upon the given responder, so this should not be problematic.
+    AlgorithmUsedInMoreThanOneSlot(BaseAsymAlgo),
 }
 
 // TODO: Use a new method, make some/most fields private
@@ -232,12 +243,36 @@ where
 
     // Ensure that exactly one bit of BaseAsymAlgo is set for each algorithm in
     // `my_certs` and `responder_certs`.
+    //
+    // Also ensure that no more than one slot has the same algorithm.
     fn validate_slots(slots: &[Slot<'a>]) -> Result<(), RequesterConfigError> {
+        // We don't support RSA, and need to add Ed25519 once we upgrade the
+        // algorithms message to 1.2.
+        let counts = heapless::LinearMap::<BaseAsymAlgo, 0>::new();
+        counts.insert(BaseAsymAlgo::ECDSA_ECC_NIST_P256, 0).unwrap();
+        counts.insert(BaseAsymAlgo::ECDSA_ECC_NIST_P384, 0).unwrap();
+        counts.insert(BaseAsymAlgo::ECDSA_ECC_NIST_P521, 0).unwrap();
+
         for slot in slots {
             if slot.algo().bits().count_ones() != 1 {
                 return Err(
                     RequesterConfigError::SlotsMustHaveExactlyOneAlgoSelected,
                 );
+            }
+            match counts.get_mut(&slot.algo()) {
+                Some(count) => {
+                    count += 1;
+                    if count > 1 {
+                        return Err(
+                        RequesterConfigError::AlgorithmUsedInMoreThanOneSlot(slot.algo)
+                        );
+                    }
+                }
+                None => {
+                    return Err(RequesterConfigError::AlgorithmNotSupported(
+                        slot.algo,
+                    ));
+                }
             }
         }
 

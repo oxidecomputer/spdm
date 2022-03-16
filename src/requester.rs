@@ -163,9 +163,7 @@ impl AllStates {
                 transcript,
                 &mut config.responder_certs(),
             ),
-            AllStates::Challenge(state) => {
-                state.write_msg(buf, transcript, &config.responder_certs)
-            }
+            AllStates::Challenge(state) => state.write_msg(buf, transcript),
             AllStates::Complete => Err(RequesterError::Complete),
             AllStates::Error => Err(RequesterError::Wedged),
         }
@@ -200,12 +198,12 @@ impl AllStates {
                 })
             }
             AllStates::IdAuth(mut state) => {
-                // We always retrieve the full cert chain in one request, so we have no need for
-                // the result here. The cert chain has already been written
-                // to the slot.
+                // We always retrieve the full cert chain in one request, so
+                // we have no need for the result here. The cert chain has
+                // already been writtento the slot.
                 //
                 // TODO: When we support receiving CERTIFICATE messages with
-                // multiple messaages, we will care about the return value.
+                // multiple messages, we will care about the return value.
                 let _ = state.handle_certificate(
                     rsp,
                     transcript,
@@ -214,11 +212,15 @@ impl AllStates {
                 if state.requester_cap.contains(ReqFlags::CHAL_CAP) {
                     Ok(challenge::State::from(state).into())
                 } else {
-                    Ok(AllStates::NewSession)
+                    Ok(AllStates::Complete)
                 }
             }
             AllStates::Challenge(state) => {
-                state.handle_msg(rsp, transcript)?;
+                state.handle_msg(
+                    rsp,
+                    transcript,
+                    &config.validator.as_ref().unwrap(),
+                )?;
                 Ok(AllStates::Complete)
             }
             AllStates::Complete => Err(RequesterError::Complete),

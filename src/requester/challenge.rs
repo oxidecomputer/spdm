@@ -4,11 +4,12 @@
 
 use core::convert::From;
 use core::fmt::Debug;
+use core::marker::PhantomData;
 
 use super::{expect, id_auth, RequesterError};
 use crate::crypto::{
     pki::{EndEntityCert, PkiError, Validator},
-    Digests, Nonce, ProvidedDigests,
+    Digests, Nonce,
 };
 use crate::msgs::{
     capabilities::{ReqFlags, RspFlags},
@@ -17,7 +18,6 @@ use crate::msgs::{
     MeasurementHashType, Msg, VersionEntry, HEADER_SIZE,
 };
 
-use crate::config::Slot;
 use crate::Transcript;
 
 // A provisioned certificate does not need to be retrieved
@@ -80,6 +80,7 @@ impl From<id_auth::State> for State {
             responder_ct_exponent: s.responder_ct_exponent,
             responder_cap: s.responder_cap,
             algorithms: s.algorithms,
+            slot_id: s.slot_id.as_ref().unwrap(),
             nonce: None,
         }
     }
@@ -91,12 +92,11 @@ impl State {
         &mut self,
         buf: &'a mut [u8],
         transcript: &mut Transcript,
-        slot_id: u8,
     ) -> Result<&'a [u8], RequesterError> {
         // We plan to have the user retrieve measurements in a secure channel
         // Is there also a need to retrieve them during challenge-response?
         let measurement_hash_type = MeasurementHashType::None;
-        let challenge = Challenge::new(slot_id, measurement_hash_type);
+        let challenge = Challenge::new(self.slot_id, measurement_hash_type);
         self.nonce = Some(challenge.nonce.clone());
         let size = challenge.write(buf).map_err(|e| RequesterError::from(e))?;
         transcript.extend(&buf[..size])?;
@@ -106,13 +106,15 @@ impl State {
     /// Process a received responder message.
     ///
     /// Only CHALLENGE_AUTH msgs are acceptable here.
-    pub fn handle_msg<V>(
+    pub fn handle_msg<D, V>(
         &self,
         buf: &[u8],
         transcript: &mut Transcript,
-        validator: V,
+        _: PhantomData<D>,
+        validator: &V,
     ) -> Result<(), RequesterError>
     where
+        D: Digests,
         V: for<'a> Validator<'a>,
     {
         expect::<ChallengeAuth>(buf)?;
@@ -128,7 +130,7 @@ impl State {
             signature_size,
         )?;
 
-        if rsp.slot != self.cert_slot {
+        if rsp.slot != self.slot_id {
             return Err(ChallengeAuthError::IncorrectSlot.into());
         }
 
@@ -140,7 +142,7 @@ impl State {
         }
 
         // TODO: Handle pre-provisioned certs
-        let digest = ProvidedDigests::digest(
+        let digest = D::digest(
             hash_algo,
             &self.cert_chain[..self.cert_chain_size as usize],
         );
@@ -156,7 +158,7 @@ impl State {
         // ChallengeAuth response without the signature.
         let sig_start = buf.len() - usize::from(signature_size);
         transcript.extend(&buf[..sig_start])?;
-        let m2_hash = ProvidedDigests::digest(hash_algo, transcript.get());
+        let m2_hash = D::digest(hash_algo, transcript.get());
 
         // TODO: Use heapless::Vec to get rid of this buffer nonsense
         let cert_chain_buf = &self.cert_chain[..self.cert_chain_size as usize];
