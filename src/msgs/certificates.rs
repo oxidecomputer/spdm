@@ -4,7 +4,7 @@
 
 use core::cmp::PartialEq;
 
-use crate::config::{Slot, SlotState};
+use crate::config::Slot;
 
 use super::common::DigestSize;
 use super::encoding::{BufferFullError, ReadError, Reader, Writer};
@@ -82,7 +82,9 @@ impl<'a> Msg for Certificate<'a> {
 #[derive(Debug, PartialEq)]
 pub enum ParseCertificateError {
     TooLarge,
-    NoEmptyResponderSlot,
+
+    // The received certificate does not match the given slot id
+    SlotIdMismatch,
 
     // This is only temporary. Eventually we will support sending certificates
     // in chunks.
@@ -99,21 +101,15 @@ impl From<ReadError> for ParseCertificateError {
 impl<'a> Certificate<'a> {
     pub fn parse_body(
         buf: &[u8],
-        responder_certs: &'a mut [Slot<'a>],
+        slot: &'a mut Slot<'a>,
     ) -> Result<Certificate<'a>, ParseCertificateError> {
         let mut r = Reader::new(buf);
         let slot_id = r.get_byte()?;
         r.skip_reserved(1)?;
 
-        // Find the proper empty slot.
-        // In the future we may allow overwriting full slots, but not now.
-        let slot = responder_certs.iter_mut().find(|slot| {
-            slot.state == SlotState::Empty && slot_id == slot.id()
-        });
-        if slot.is_none() {
-            return Err(ParseCertificateError::NoEmptyResponderSlot);
+        if slot.id() != slot_id {
+            return Err(ParseCertificateError::SlotIdMismatch);
         }
-        let mut slot = slot.unwrap();
 
         let portion_length = r.get_u16()?;
         if portion_length as usize > slot.capacity() {

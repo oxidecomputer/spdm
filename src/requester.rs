@@ -158,26 +158,14 @@ impl AllStates {
             }
             AllStates::Capabilities(state) => state.write_msg(buf, transcript),
             AllStates::Algorithms(state) => state.write_msg(buf, transcript),
-            AllStates::IdAuth(state) => {
-                // A requester must a-priori know what slots are filled by a
-                // responder and what algotithms they use. All slots that match
-                // the negotiated algorithm should be retrieved. This enables
-                // functionality like using one slot for measurements and one for
-                // a secure session.
-                //
-                // Here we find the next empty responder slot and send a request
-                // for it. There is guaranteed to be at least one empty slot
-                // because the `handle_msg` method will transition to the next state
-                // otherwise.
-                let slot = config
-                    .responder_certs()
-                    .iter()
-                    .filter(|slot| slot.state == SlotState::Empty)
-                    .next()
-                    .unwrap();
-                state.write_get_certificate_msg(slot, buf, transcript)
+            AllStates::IdAuth(state) => self.write_get_certificate_msg(
+                buf,
+                transcript,
+                &mut config.responder_certs(),
+            ),
+            AllStates::Challenge(state) => {
+                state.write_msg(buf, transcript, &config.responder_certs)
             }
-            AllStates::Challenge(state) => state.write_msg(buf, transcript),
             AllStates::Complete => Err(RequesterError::Complete),
             AllStates::Error => Err(RequesterError::Wedged),
         }
@@ -212,18 +200,21 @@ impl AllStates {
                 })
             }
             AllStates::IdAuth(mut state) => {
-                if state.digests.is_none() {
-                    state.handle_digests(rsp, transcript)?;
-                    Ok(state.into())
+                // We always retrieve the full cert chain in one request, so we have no need for
+                // the result here. The cert chain has already been written
+                // to the slot.
+                //
+                // TODO: When we support receiving CERTIFICATE messages with
+                // multiple messaages, we will care about the return value.
+                let _ = state.handle_certificate(
+                    rsp,
+                    transcript,
+                    &mut config.responder_certs,
+                )?;
+                if state.requester_cap.contains(ReqFlags::CHAL_CAP) {
+                    Ok(challenge::State::from(state).into())
                 } else {
-                    state.handle_certificate(rsp, transcript)?;
-                    if state.requester_cap.contains(ReqFlags::CHAL_CAP)
-                        && state.responder_cap.contains(RspFlags::CHAL_CAP)
-                    {
-                        Ok(challenge::State::from(state).into())
-                    } else {
-                        Ok(AllStates::NewSession)
-                    }
+                    Ok(AllStates::NewSession)
                 }
             }
             AllStates::Challenge(state) => {
@@ -239,12 +230,12 @@ impl AllStates {
     pub fn name(&self) -> &'static str {
         match self {
             AllStates::Error => "Error",
+            AllStates::Complte => "Complete",
             AllStates::Version(_) => "Version",
             AllStates::Capabilities(_) => "Capabilities",
             AllStates::Algorithms(_) => "Algorithms",
             AllStates::IdAuth(_) => "IdAuth",
             AllStates::Challenge(_) => "Challenge",
-            AllStates::NewSession => "NewSession",
         }
     }
 

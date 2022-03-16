@@ -6,9 +6,8 @@ use core::convert::From;
 use core::fmt::Debug;
 
 use super::{expect, id_auth, RequesterError};
-use crate::config::MAX_CERT_CHAIN_SIZE;
 use crate::crypto::{
-    pki::{EndEntityCert, Validator},
+    pki::{EndEntityCert, PkiError, Validator},
     Digests, Nonce, ProvidedDigests,
 };
 use crate::msgs::{
@@ -18,6 +17,7 @@ use crate::msgs::{
     MeasurementHashType, Msg, VersionEntry, HEADER_SIZE,
 };
 
+use crate::config::Slot;
 use crate::Transcript;
 
 // A provisioned certificate does not need to be retrieved
@@ -51,7 +51,7 @@ impl From<ParseChallengeAuthError> for ChallengeAuthError {
     }
 }
 
-impl From<E> for ChallengeAuthError {
+impl From<PkiError> for ChallengeAuthError {
     fn from(e: PkiError) -> Self {
         ChallengeAuthError::Pki(e)
     }
@@ -67,9 +67,7 @@ pub struct State {
     pub responder_ct_exponent: u8,
     pub responder_cap: RspFlags,
     pub algorithms: Algorithms,
-    pub cert_slot: u8,
-    pub cert_chain: [u8; MAX_CERT_CHAIN_SIZE],
-    pub cert_chain_size: u16,
+    pub slot_id: u8,
     pub nonce: Option<Nonce>,
 }
 
@@ -82,9 +80,6 @@ impl From<id_auth::State> for State {
             responder_ct_exponent: s.responder_ct_exponent,
             responder_cap: s.responder_cap,
             algorithms: s.algorithms,
-            cert_slot: s.cert_chain.as_ref().unwrap().slot,
-            cert_chain: s.cert_chain.as_ref().unwrap().cert_chain,
-            cert_chain_size: s.cert_chain.unwrap().portion_length,
             nonce: None,
         }
     }
@@ -96,11 +91,12 @@ impl State {
         &mut self,
         buf: &'a mut [u8],
         transcript: &mut Transcript,
+        slot_id: u8,
     ) -> Result<&'a [u8], RequesterError> {
         // We plan to have the user retrieve measurements in a secure channel
         // Is there also a need to retrieve them during challenge-response?
         let measurement_hash_type = MeasurementHashType::None;
-        let challenge = Challenge::new(self.cert_slot, measurement_hash_type);
+        let challenge = Challenge::new(slot_id, measurement_hash_type);
         self.nonce = Some(challenge.nonce.clone());
         let size = challenge.write(buf).map_err(|e| RequesterError::from(e))?;
         transcript.extend(&buf[..size])?;

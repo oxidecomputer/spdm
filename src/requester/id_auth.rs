@@ -4,7 +4,8 @@
 
 use core::convert::From;
 
-use super::{algorithms, expect, RequesterError, Slot};
+use super::{algorithms, expect, RequesterError};
+use crate::config::{Slot, SlotState};
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
 use crate::msgs::{
     Algorithms, Certificate, Digests, GetCertificate, GetDigests, Msg,
@@ -34,6 +35,7 @@ pub struct State {
     pub responder_ct_exponent: u8,
     pub responder_cap: RspFlags,
     pub algorithms: Algorithms,
+    pub slot_id: Option<u8>,
 }
 
 impl From<algorithms::State> for State {
@@ -45,6 +47,7 @@ impl From<algorithms::State> for State {
             responder_ct_exponent: s.responder_ct_exponent,
             responder_cap: s.responder_cap,
             algorithms: s.algorithms.unwrap(),
+            slot_id: None,
         }
     }
 }
@@ -88,19 +91,42 @@ impl State {
     /// transcript.
     pub fn write_get_certificate_msg<'a, 'b>(
         &mut self,
-        slot: &'b Slot<'b>,
         buf: &'a mut [u8],
         transcript: &mut Transcript,
+        responder_certs: &'a mut [Slot<'a>],
     ) -> Result<&'a [u8], RequesterError> {
+        // A requester must a-priori know what slots are filled by a
+        // responder and what algotithms they use. There must not be
+        // more than one slot with the same algorithm. The slot that
+        // matches the negotiated algorithm should be retrieved.
+        //
+        // Here we find the next empty responder slot for the
+        // negotiated algorithm and send a request for it.
+        let slot = responder_certs
+            .iter()
+            .filter(|slot| {
+                slot.state == SlotState::Empty
+                    && slot.algo == self.algorithms.base_asym_algo_selected
+            })
+            .next();
+
+        if slot.is_none() {
+            return Err(RequesterError::ResponderSlotNotEmpty);
+        }
+
+        let slot = slot.unwrap();
+
         // TODO: Allow retrieiving cert chains from offsets. We assume for now
         // buffers are large enough to retrieve them in one round trip.
+        //
         let msg = GetCertificate {
-            slot,
+            slot: slot.id(),
             offset: 0,
             length: u16::try_from(slot.capacity()).unwrap(),
         };
         let size = msg.write(buf)?;
         transcript.extend(&buf[..size])?;
+        self.slot_id = Some(slot.id());
         Ok(&buf[..size])
     }
 
@@ -113,9 +139,16 @@ impl State {
     ) -> Result<Certificate, RequesterError> {
         expect::<Certificate>(buf)?;
 
+        // We assume that a GET_CERTIFICATE message has already been sent, and
+        // so a slot has been selected.
+        let slot = responder_certs
+            .iter_mut()
+            .find(|slot| slot.id() == self.slot_id.unwrap())
+            .next()
+            .unwrap();
+
         // Read the cert chain into the propper `responder_certs` entry.
-        let cert =
-            Certificate::parse_body(&buf[HEADER_SIZE..], responder_certs)?;
+        let cert = Certificate::parse_body(&buf[HEADER_SIZE..], slot)?;
         transcript.extend(buf)?;
         Ok(cert)
     }

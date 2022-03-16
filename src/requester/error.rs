@@ -82,6 +82,8 @@ pub enum RequesterError {
     // We treat all requester capabilities as requirements to prevent a
     // malicious responder from skipping over required messages.
     CapabilitiesNotSupportedByResponder(ReqFlags),
+
+    ResponderSlotNotEmpty,
 }
 
 impl From<BufferFullError> for RequesterError {

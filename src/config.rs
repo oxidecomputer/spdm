@@ -7,7 +7,6 @@ use crate::msgs::algorithms::BaseAsymAlgo;
 use crate::msgs::capabilities::ReqFlags;
 use crate::msgs::encoding::{ReadError, Reader};
 
-use core::mem;
 use tinyvec::SliceVec;
 
 /// This is the size in bytes of the largest buffer required for a signature
@@ -21,6 +20,10 @@ pub const MAX_SIGNATURE_SIZE: usize = 132;
 /// See Table 15, Byte offset: 12, Field: BaseHashAlgo in the SPDM 1.2 spec
 pub const MAX_DIGEST_SIZE: usize = 64;
 
+/// The state of a slot holding a certificate chain.
+///
+/// A local slot is always full. A slot that is retrieved from requester or
+/// responder may not yet be full.
 pub enum SlotState {
     /// There is a full cert chain in the slot
     Full,
@@ -115,6 +118,9 @@ pub enum RequesterConfigError {
 
     /// Slots must have exactly one bit set for `algo`
     SlotsMustHaveExactlyOneAlgoSelected,
+
+    /// The provided algorithm is not supported.
+    AlgorithmNotSupported(BaseAsymAlgo),
 }
 
 // TODO: Use a new method, make some/most fields private
@@ -218,9 +224,16 @@ where
         // TODO: Ensure that all requester and responder certs use algorithms
         // supported by the  Validator
 
-        // Ensure that exactly one bit of BaseAsymAlgo is set for each algorithm in
-        // `my_certs` and `responder_certs`.
-        for slot in &self.my_certs {
+        Self::validate_slots(&self.my_certs)?;
+        Self::validate_slots(&self.responder_certs)?;
+
+        Ok(self)
+    }
+
+    // Ensure that exactly one bit of BaseAsymAlgo is set for each algorithm in
+    // `my_certs` and `responder_certs`.
+    fn validate_slots(slots: &[Slot<'a>]) -> Result<(), RequesterConfigError> {
+        for slot in slots {
             if slot.algo().bits().count_ones() != 1 {
                 return Err(
                     RequesterConfigError::SlotsMustHaveExactlyOneAlgoSelected,
@@ -228,14 +241,6 @@ where
             }
         }
 
-        for slot in &self.responder_certs {
-            if slot.algo().bits.count_ones() != 1 {
-                return Err(
-                    RequesterConfigError::SlotsMustHaveExactlyOneAlgoSelected,
-                );
-            }
-        }
-
-        Ok(self)
+        Ok(())
     }
 }
