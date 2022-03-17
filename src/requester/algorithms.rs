@@ -5,8 +5,7 @@
 use core::convert::From;
 
 use super::{capabilities, expect, RequesterError};
-use crate::config;
-use crate::crypto::ProvidedDigests;
+use crate::crypto::{Digests, SupportedDigestAlgorithms};
 use crate::msgs::algorithms::*;
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
 use crate::msgs::{
@@ -43,12 +42,30 @@ impl From<capabilities::State> for State {
 impl State {
     /// Serialize a NEGOTIATE_ALGORITHMS request and append it to the
     /// transcript
-    pub fn write_msg<'a>(
+    pub fn write_msg<'a, D>(
         &mut self,
         buf: &'a mut [u8],
         transcript: &mut Transcript,
-    ) -> Result<&'a [u8], RequesterError> {
-        let msg = config_to_negotiate_algorithms_msg()?;
+        d: Option<D>,
+        base_asym_algo: BaseAsymAlgo,
+    ) -> Result<&'a [u8], RequesterError>
+    where
+        D: Digests,
+    {
+        let base_hash_algo =
+            d.map_or(BaseAsymAlgo::default(), |_| D::supported_algorithms());
+
+        let msg = NegotiateAlgorithms {
+            measurement_spec: MeasurementSpec::DMTF,
+            base_asym_algo,
+            base_hash_algo,
+
+            // TODO: Generate the following from config, once we implement this
+            // functionality
+            num_algorithm_requests: 0,
+            algorithm_requests: [],
+        };
+
         let size = msg.write(buf)?;
         self.negotiate_algorithms = Some(msg);
         transcript.extend(&buf[..size])?;
@@ -174,47 +191,6 @@ impl State {
         }
         Ok(())
     }
-}
-
-// TODO: The whole configuration for algorithms should go away, and be strictly
-// determined by provider. We may want a way to allow configuring priorities and
-// optionally preventing certain algorithms from being used in config, but that can
-// come later.
-fn config_to_negotiate_algorithms_msg(
-) -> Result<NegotiateAlgorithms, RequesterError> {
-    let mut signing_algos = BaseAsymAlgo::default();
-    for s in config::ALGORITHMS_ASYMMETRIC_SIGNING {
-        signing_algos |= s.parse()?;
-    }
-    // TODO: The rest of the code should look like this.
-    let hash_algos = ProvidedDigests::supported_algorithms();
-
-    Ok(NegotiateAlgorithms {
-        measurement_spec: MeasurementSpec::DMTF,
-        base_asym_algo: signing_algos,
-        base_hash_algo: hash_algos,
-
-        // TODO: Generate the following from config, once we implement this
-        // functionality
-        num_algorithm_requests: 4,
-        algorithm_requests: [
-            AlgorithmRequest::Dhe(DheAlgorithm {
-                supported: DheFixedAlgorithms::FFDHE_3072
-                    | DheFixedAlgorithms::SECP_384_R1,
-            }),
-            AlgorithmRequest::Aead(AeadAlgorithm {
-                supported: AeadFixedAlgorithms::AES_256_GCM
-                    | AeadFixedAlgorithms::CHACHA20_POLY1305,
-            }),
-            AlgorithmRequest::ReqBaseAsym(ReqBaseAsymAlgorithm {
-                supported: ReqBaseAsymFixedAlgorithms::ECDSA_ECC_NIST_P384
-                    | ReqBaseAsymFixedAlgorithms::ECDSA_ECC_NIST_P256,
-            }),
-            AlgorithmRequest::KeySchedule(KeyScheduleAlgorithm {
-                supported: KeyScheduleFixedAlgorithms::SPDM,
-            }),
-        ],
-    })
 }
 
 #[cfg(test)]

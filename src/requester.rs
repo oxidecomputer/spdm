@@ -24,9 +24,9 @@ use crate::msgs::Msg;
 use crate::Transcript;
 pub use error::RequesterError;
 
-use crate::config::{RequesterConfig, Slot, SlotState};
+use crate::config::RequesterConfig;
 use crate::crypto::{pki, Digests};
-use crate::msgs::capabilities::{ReqFlags, RspFlags};
+use crate::msgs::capabilities::ReqFlags;
 
 use core::convert::From;
 use derive_more::From;
@@ -156,8 +156,15 @@ impl AllStates {
             AllStates::Version(state) => {
                 state.write_get_version(buf, transcript)
             }
-            AllStates::Capabilities(state) => state.write_msg(buf, transcript),
-            AllStates::Algorithms(state) => state.write_msg(buf, transcript),
+            AllStates::Capabilities(state) => {
+                state.write_msg(buf, transcript, &config.capabilities)
+            }
+            AllStates::Algorithms(state) => state.write_msg(
+                buf,
+                transcript,
+                &config.digests,
+                config.asym_algos_supported,
+            ),
             AllStates::IdAuth(state) => self.write_get_certificate_msg(
                 buf,
                 transcript,

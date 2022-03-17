@@ -23,6 +23,10 @@ pub const MAX_DIGEST_SIZE: usize = 64;
 /// The number of possible slots in the SPDM
 pub const NUM_SLOTS: usize = 8;
 
+/// TODO: Eventually we will get rid of the need for this by maintaining a rolling
+/// hash.
+pub const TRANSCRIPT_SIZE: usize = 512;
+
 /// The state of a slot holding a certificate chain.
 ///
 /// A local slot is always full. A slot that is retrieved from requester or
@@ -132,6 +136,12 @@ pub enum RequesterConfigError {
     /// It's anticipated that different requesters can chose different slots
     /// depending upon the given responder, so this should not be problematic.
     AlgorithmUsedInMoreThanOneSlot(BaseAsymAlgo),
+
+    /// Requester and Responder certs do not use the same algorithms
+    CertificateAlgorithmMismatch {
+        requester_algos: BaseAsymAlgo,
+        responder_algos: BaseAsymAlgo,
+    },
 }
 
 // TODO: Use a new method, make some/most fields private
@@ -161,6 +171,9 @@ pub struct RequesterConfig<'a, D, V> {
     responder_opaque_data: SliceVec<'a, u8>,
 
     capabilities: ReqFlags,
+
+    /// These get derived from my_certs and responder_certs
+    asym_algos_supported: BaseAsymAlgo,
 }
 
 impl<'a, D, V> RequesterConfig<'a, D, V>
@@ -177,6 +190,9 @@ where
         responder_opaque_data: SliceVec<'a, u8>,
         capabilities: ReqFlags,
     ) -> Result<RequesterConfig<'a, D, V>, RequesterConfigError> {
+        let asym_algos_supported =
+            Self::derive_asym_algos(my_certs, responder_certs)?;
+
         let config = RequesterConfig {
             digests,
             validator,
@@ -185,6 +201,7 @@ where
             my_opaque_data,
             responder_opaque_data,
             capabilities,
+            asym_algos_supported,
         };
 
         config.validate()
@@ -196,6 +213,27 @@ where
 
     pub fn my_opaque_data(&mut self) -> &mut SliceVec<'a, u8> {
         &mut self.my_opaque_data
+    }
+
+    // Ensure that the requester and responder certs match algorithms and then
+    // report the supported algorithms.
+    fn derive_asym_algos(
+        requester_certs: &'a [Slot<'a>],
+        responder_certs: &'a [Slot<'a>],
+    ) -> Result<BaseAsymAlgo, RequesterConfigError> {
+        let req_algos = requester_certs
+            .fold(BaseAsymAlgo::default(), |acc, slot| acc |= slot.algo());
+        let rsp_algos = responder_certs
+            .fold(BaseAsymAlgo::default(), |acc, slot| acc |= slot.algo());
+
+        if req_algos != rsp_algos {
+            Err(RequesterConfigError::CertificateAlgorithmMismatch {
+                requester_algos: req_algos,
+                responder_algos: rsp_algos,
+            })
+        } else {
+            Ok(req_algos)
+        }
     }
 
     // TODO: Be sure to update this as more capabilities are added

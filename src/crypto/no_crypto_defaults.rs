@@ -19,7 +19,7 @@ use crate::msgs::{algorithms::BaseHashAlgo, common::DigestBuf};
 
 use super::{
     signing::{self, Signature, Signer},
-    Digests,
+    Digests, SupportedDigestAlgorithms,
 };
 
 pub struct ProvidedDigests;
@@ -27,8 +27,8 @@ pub struct ProvidedDigests;
 // We have to actually provide at least one algorithm for use in the
 // ALGORITHMS message exchange. However, if no real crypto provider is given,
 // the code that uses this algorithm will not be compiled.
-impl ProvidedDigests {
-    pub fn supported_algorithms() -> BaseHashAlgo {
+impl SupportedDigestAlgorithms for ProvidedDigests {
+    fn supported_algorithms() -> BaseHashAlgo {
         BaseHashAlgo::SHA_256
     }
 }

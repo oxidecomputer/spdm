@@ -7,7 +7,7 @@ use crate::msgs::algorithms::BaseAsymAlgo;
 use crate::msgs::certificates::CertificateChain;
 
 #[derive(Debug, PartialEq)]
-pub enum PkiError {
+pub enum Error {
     InvalidTrustAnchor,
     InvalidEndEntityCert,
     CertValidationFailed,
@@ -30,7 +30,7 @@ pub trait Validator<'a> {
     fn validate(
         algorithm: BaseAsymAlgo,
         cert_chain: CertificateChain<'a>,
-    ) -> Result<Self::EndEntityCert, PkiError>;
+    ) -> Result<Self::EndEntityCert, Error>;
 }
 
 /// An EndEntityCert represents the leaf certificate in a certificate chain.
@@ -46,7 +46,7 @@ pub trait EndEntityCert<'a> {
         algorithm: BaseAsymAlgo,
         msg: &[u8],
         signature: &[u8],
-    ) -> Result<(), PkiError>;
+    ) -> Result<(), Error>;
 }
 
 // DER tags required for this module

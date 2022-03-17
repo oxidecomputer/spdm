@@ -21,7 +21,7 @@ pub mod ring;
 #[cfg(feature = "crypto-ring")]
 pub use self::ring::digest::ProvidedDigests;
 
-pub use digest::Digests;
+pub use digest::{Digests, SupportedDigestAlgorithms};
 pub use nonce::Nonce;
 pub use signing::Signer;
 pub use slot::FilledSlot;

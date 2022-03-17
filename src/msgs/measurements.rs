@@ -15,6 +15,13 @@ use crate::crypto::Nonce;
 use bitflags::bitflags;
 use core::convert::{From, TryFrom, TryInto};
 
+// TODO: Placeholder until we figure out how we are going to use measurements
+// from API
+pub const MAX_MEASUREMENT_BLOCKS: usize = 5;
+// TODO: Placeholder until we figure out how we are going to use measurements
+// from API
+pub const MAX_MEASUREMENT_SIZE: usize = 64;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct RequestAttributes {
     // If this field is set, the nonce field must be present.
@@ -312,7 +319,7 @@ impl TryFrom<u8> for DmtfMeasurementValueType {
 #[derive(Debug, Clone)]
 pub struct BitStream {
     len: usize,
-    buf: [u8; config::MAX_MEASUREMENT_SIZE],
+    buf: [u8; MAX_MEASUREMENT_SIZE],
 }
 
 #[derive(Debug, PartialEq)]
@@ -329,7 +336,7 @@ impl From<ReadError> for ParseBitStreamError {
 
 impl BitStream {
     pub fn new(data: &[u8]) -> BitStream {
-        let mut buf = [0u8; config::MAX_MEASUREMENT_SIZE];
+        let mut buf = [0u8; MAX_MEASUREMENT_SIZE];
         buf[..data.len()].copy_from_slice(data);
         BitStream { len: data.len(), buf }
     }
@@ -346,10 +353,10 @@ impl BitStream {
         len: usize,
         r: &mut Reader,
     ) -> Result<BitStream, ParseBitStreamError> {
-        if len > config::MAX_MEASUREMENT_SIZE {
+        if len > MAX_MEASUREMENT_SIZE {
             return Err(ParseBitStreamError::MaxSizeExceeded);
         }
-        let mut buf = [0u8; config::MAX_MEASUREMENT_SIZE];
+        let mut buf = [0u8; MAX_MEASUREMENT_SIZE];
         r.get_slice(len, &mut buf)?;
 
         Ok(BitStream { len, buf })
@@ -622,16 +629,13 @@ impl From<ReadError> for ParseMeasurementBlocksError {
 #[derive(Debug, Clone, PartialEq)]
 pub struct MeasurementBlocks {
     pub len: usize,
-    pub blocks: [Option<MeasurementBlock>; config::MAX_MEASUREMENT_BLOCKS],
+    pub blocks: [Option<MeasurementBlock>; MAX_MEASUREMENT_BLOCKS],
 }
 
 impl Default for MeasurementBlocks {
     fn default() -> Self {
         const BLOCK: Option<MeasurementBlock> = None;
-        MeasurementBlocks {
-            len: 0,
-            blocks: [BLOCK; config::MAX_MEASUREMENT_BLOCKS],
-        }
+        MeasurementBlocks { len: 0, blocks: [BLOCK; MAX_MEASUREMENT_BLOCKS] }
     }
 }
 
@@ -664,8 +668,7 @@ impl MeasurementBlocks {
     ) -> Result<MeasurementBlocks, ParseMeasurementBlocksError> {
         let num_blocks = r.get_byte()? as usize;
         let size = r.get_u24()?;
-        if size > config::MAX_MEASUREMENT_SIZE * config::MAX_MEASUREMENT_BLOCKS
-        {
+        if size > MAX_MEASUREMENT_SIZE * MAX_MEASUREMENT_BLOCKS {
             return Err(ParseMeasurementBlocksError::MaxSizeExceeded);
         }
         let offset = r.byte_offset();
@@ -814,7 +817,7 @@ impl Measurements {
         let mut r = Reader::new(buf);
         let total_blocks = r.get_byte()?;
 
-        if usize::from(total_blocks) > config::MAX_MEASUREMENT_BLOCKS {
+        if usize::from(total_blocks) > MAX_MEASUREMENT_BLOCKS {
             return Err(ParseMeasurementsError::MaxBlocksExceeded);
         }
 

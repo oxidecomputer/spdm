@@ -8,7 +8,7 @@ use core::marker::PhantomData;
 
 use super::{expect, id_auth, RequesterError};
 use crate::crypto::{
-    pki::{EndEntityCert, PkiError, Validator},
+    pki::{self, EndEntityCert, Validator},
     Digests, Nonce,
 };
 use crate::msgs::{
@@ -42,7 +42,7 @@ pub enum ChallengeAuthError {
     ParseChallengeAuth(ParseChallengeAuthError),
 
     /// Cert chain validation failed
-    Pki(PkiError),
+    Pki(pki::Error),
 }
 
 impl From<ParseChallengeAuthError> for ChallengeAuthError {
@@ -51,8 +51,8 @@ impl From<ParseChallengeAuthError> for ChallengeAuthError {
     }
 }
 
-impl From<PkiError> for ChallengeAuthError {
-    fn from(e: PkiError) -> Self {
+impl From<pki::Error> for ChallengeAuthError {
+    fn from(e: pki::Error) -> Self {
         ChallengeAuthError::Pki(e)
     }
 }
