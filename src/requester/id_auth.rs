@@ -5,13 +5,13 @@
 use core::convert::TryFrom;
 
 use super::{algorithms, expect, RequesterError};
-use crate::config::{Slot, SlotState};
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
 use crate::msgs::{
     Algorithms, Certificate, Digests, GetCertificate, GetDigests, Msg,
     VersionEntry, HEADER_SIZE,
 };
 use crate::Transcript;
+use crate::{Slot, SlotState};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Id<'a> {

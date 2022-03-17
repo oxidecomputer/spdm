@@ -6,7 +6,6 @@ use core::convert::From;
 use core::fmt::Debug;
 
 use super::{expect, id_auth, RequesterError};
-use crate::config::Slot;
 use crate::crypto::{
     pki::{self, EndEntityCert, Validator},
     Digests, Nonce,
@@ -17,6 +16,7 @@ use crate::msgs::{
     Algorithms, CertificateChain, Challenge, ChallengeAuth,
     MeasurementHashType, Msg, VersionEntry, HEADER_SIZE,
 };
+use crate::Slot;
 
 use crate::Transcript;
 

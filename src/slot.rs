@@ -2,28 +2,10 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use crate::msgs::algorithms::BaseAsymAlgo;
-use crate::msgs::encoding::{ReadError, Reader};
-
 use tinyvec::SliceVec;
 
-/// This is the size in bytes of the largest buffer required for a signature
-/// using the base asymmetric signing algorithms in the SPDM 1.2 spec,
-/// not-including RSA.
-///
-/// See Table 15, Byte offset: 8, Field: BaseAsymAlgo in the SPDM 1.2 spec
-pub const MAX_SIGNATURE_SIZE: usize = 132;
-
-/// This is the size in bytes of the largest buffer required for a digest
-/// See Table 15, Byte offset: 12, Field: BaseHashAlgo in the SPDM 1.2 spec
-pub const MAX_DIGEST_SIZE: usize = 64;
-
-/// The number of possible slots in the SPDM
-pub const NUM_SLOTS: usize = 8;
-
-/// TODO: Eventually we will get rid of the need for this by maintaining a rolling
-/// hash.
-pub const TRANSCRIPT_SIZE: usize = 512;
+use crate::msgs::algorithms::BaseAsymAlgo;
+use crate::msgs::encoding::{ReadError, Reader};
 
 /// The state of a slot holding a certificate chain.
 ///

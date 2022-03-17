@@ -15,6 +15,7 @@
 pub mod algorithms;
 pub mod capabilities;
 pub mod challenge;
+mod config;
 pub mod id_auth;
 pub mod version;
 
@@ -24,9 +25,9 @@ use crate::msgs::Msg;
 use crate::Transcript;
 pub use error::RequesterError;
 
-use crate::config::RequesterConfig;
 use crate::crypto::{pki, Digests};
 use crate::msgs::capabilities::ReqFlags;
+pub use config::{RequesterConfig, RequesterConfigError};
 
 use core::convert::From;
 use derive_more::From;

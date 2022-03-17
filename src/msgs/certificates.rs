@@ -4,7 +4,7 @@
 
 use core::cmp::PartialEq;
 
-use crate::config::Slot;
+use crate::Slot;
 
 use super::common::DigestSize;
 use super::encoding::{BufferFullError, ReadError, Reader, Writer};

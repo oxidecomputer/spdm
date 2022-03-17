@@ -9,10 +9,12 @@ pub mod config;
 pub mod crypto;
 pub mod requester;
 pub mod responder;
+mod slot;
 
 pub mod msgs;
 pub(crate) mod transcript;
 
 pub use requester::{Requester, RequesterError};
 pub use responder::{Responder, ResponderError};
+pub use slot::{Slot, SlotState};
 pub use transcript::Transcript;
