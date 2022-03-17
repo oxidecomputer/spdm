@@ -44,7 +44,9 @@ pub enum SlotConfigError {
 // `my_certs` and `responder_certs`.
 //
 // Also ensure that no more than one slot has the same algorithm.
-pub fn validate_slots<'a>(slots: &[Slot<'a>]) -> Result<(), SlotConfigError> {
+pub fn validate_slots<'a, T: AsRef<Slot<'a>>>(
+    slots: &[T],
+) -> Result<(), SlotConfigError> {
     // We don't support RSA, and need to add Ed25519 once we upgrade the
     // algorithms message to 1.2.
     let mut counts = heapless::LinearMap::<BaseAsymAlgo, usize, 3>::new();
@@ -53,6 +55,7 @@ pub fn validate_slots<'a>(slots: &[Slot<'a>]) -> Result<(), SlotConfigError> {
     counts.insert(BaseAsymAlgo::ECDSA_ECC_NIST_P521, 0).unwrap();
 
     for slot in slots {
+        let slot = slot.as_ref();
         if slot.algo().bits().count_ones() != 1 {
             return Err(SlotConfigError::SlotsMustHaveExactlyOneAlgoSelected {
                 slot_id: slot.id,

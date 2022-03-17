@@ -12,9 +12,6 @@ use tinyvec::SliceVec;
 
 #[derive(Debug, PartialEq)]
 pub enum ResponderConfigError {
-    /// One or more capabilities requires a `Signer`
-    SignerRequired(RspFlags),
-
     /// One or more capabilities requires a `Digests`
     DigestsRequired(RspFlags),
 
@@ -40,11 +37,13 @@ impl From<SlotConfigError> for ResponderConfigError {
 #[derive(Debug, PartialEq)]
 pub struct ResponderConfig<'a, D, S> {
     digests: Option<D>,
-    signer: Option<S>,
 
     /// This is only needed for mutual authentication, which we don't currently
     /// support. It's fine to leave it blank for now.
-    my_certs: &'a [Slot<'a>],
+    ///
+    /// A signer is provided for each cert. This implies that all signers are of
+    /// the same concrete type.
+    my_certs: &'a [(S, Slot<'a>)],
 
     /// Some messages accept opaque data fields from the requester
     my_opaque_data: SliceVec<'a, u8>,
@@ -66,8 +65,7 @@ where
 {
     pub fn new(
         digests: Option<D>,
-        signer: Option<S>,
-        my_certs: &'a [Slot<'a>],
+        my_certs: &'a [(S, Slot<'a>)],
         my_opaque_data: SliceVec<'a, u8>,
         requester_opaque_data: SliceVec<'a, u8>,
         capabilities: RspFlags,
@@ -76,7 +74,6 @@ where
 
         let config = ResponderConfig {
             digests,
-            signer,
             my_certs,
             my_opaque_data,
             requester_opaque_data,
@@ -99,21 +96,20 @@ where
         &self.digests
     }
 
-    pub fn signer(&self) -> &Option<S> {
-        &self.signer
-    }
-
     pub fn asym_algos_supported(&self) -> BaseAsymAlgo {
         self.asym_algos_supported
     }
 
     // Return the superset of asymmetric signing algorithms provided in the
     // responder certs.
-    fn derive_asym_algos(responder_certs: &'a [Slot<'a>]) -> BaseAsymAlgo {
-        responder_certs.iter().fold(BaseAsymAlgo::default(), |acc, slot| {
-            acc |= slot.algo();
-            acc
-        })
+    fn derive_asym_algos(responder_certs: &'a [(S, Slot<'a>)]) -> BaseAsymAlgo {
+        responder_certs.iter().fold(
+            BaseAsymAlgo::default(),
+            |acc, (_, slot)| {
+                acc |= slot.algo();
+                acc
+            },
+        )
     }
 
     fn validate(self) -> Result<Self, ResponderConfigError> {
@@ -122,10 +118,6 @@ where
         // Set intersection
         let err_caps = requiring_caps & self.capabilities;
         if !err_caps.is_empty() {
-            if self.signer.is_none() {
-                return Err(ResponderConfigError::SignerRequired(err_caps));
-            }
-
             if self.digests.is_none() {
                 return Err(ResponderConfigError::DigestsRequired(err_caps));
             }
@@ -150,7 +142,11 @@ where
         // TODO: Ensure that all requester and responder certs use algorithms
         // supported by the  Validator
 
-        validate_slots(&self.my_certs)?;
+        // Temp var used for validation
+        let mut slots: heapless::Vec<_, 8> =
+            self.my_certs.iter().map(|(_, slot)| slot).collect();
+
+        validate_slots(slots.as_slice())?;
 
         Ok(self)
     }

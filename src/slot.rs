@@ -33,6 +33,12 @@ pub struct Slot<'a> {
     pub buf: SliceVec<'a, u8>,
 }
 
+impl<'a> AsRef<Slot<'a>> for Slot<'a> {
+    fn as_ref(&self) -> &Slot<'a> {
+        &self
+    }
+}
+
 impl<'a> Slot<'a> {
     fn new(
         state: SlotState,

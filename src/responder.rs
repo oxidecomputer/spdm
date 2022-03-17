@@ -28,6 +28,7 @@ pub use config::{ResponderConfig, ResponderConfigError};
 pub use error::ResponderError;
 
 use core::convert::From;
+use derive_more::From;
 
 /// `AllStates` is a container for all the states in a responder.
 ///
@@ -48,7 +49,7 @@ use core::convert::From;
 /// enum, `AllStates`. We then provide a wrapper `Responder` API around
 /// `AllStates` that a user can consume without having to know all the internal
 /// details of the SPDM protocol.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, From)]
 pub enum AllStates {
     // A special state that indicates the responder has terminated and the
     // transport should close its "connection".
@@ -58,36 +59,6 @@ pub enum AllStates {
     Algorithms(algorithms::State),
     IdAuth(id_auth::State),
     Challenge(challenge::State),
-}
-
-impl From<version::State> for AllStates {
-    fn from(state: version::State) -> AllStates {
-        AllStates::Version(state)
-    }
-}
-
-impl From<capabilities::State> for AllStates {
-    fn from(state: capabilities::State) -> AllStates {
-        AllStates::Capabilities(state)
-    }
-}
-
-impl From<algorithms::State> for AllStates {
-    fn from(state: algorithms::State) -> AllStates {
-        AllStates::Algorithms(state)
-    }
-}
-
-impl From<id_auth::State> for AllStates {
-    fn from(state: id_auth::State) -> AllStates {
-        AllStates::IdAuth(state)
-    }
-}
-
-impl From<challenge::State> for AllStates {
-    fn from(state: challenge::State) -> AllStates {
-        AllStates::Challenge(state)
-    }
 }
 
 impl AllStates {
