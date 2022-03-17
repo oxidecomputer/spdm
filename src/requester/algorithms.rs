@@ -5,7 +5,7 @@
 use core::convert::From;
 
 use super::{capabilities, expect, RequesterError};
-use crate::crypto::{Digests, SupportedDigestAlgorithms};
+use crate::crypto::Digests;
 use crate::msgs::algorithms::*;
 use crate::msgs::capabilities::{ReqFlags, RspFlags};
 use crate::msgs::{
@@ -46,14 +46,14 @@ impl State {
         &mut self,
         buf: &'a mut [u8],
         transcript: &mut Transcript,
-        d: Option<D>,
+        d: &Option<D>,
         base_asym_algo: BaseAsymAlgo,
     ) -> Result<&'a [u8], RequesterError>
     where
         D: Digests,
     {
         let base_hash_algo =
-            d.map_or(BaseAsymAlgo::default(), |_| D::supported_algorithms());
+            d.map_or(BaseHashAlgo::default(), |_| D::supported_algorithms());
 
         let msg = NegotiateAlgorithms {
             measurement_spec: MeasurementSpec::DMTF,
@@ -63,7 +63,8 @@ impl State {
             // TODO: Generate the following from config, once we implement this
             // functionality
             num_algorithm_requests: 0,
-            algorithm_requests: [],
+            algorithm_requests: [AlgorithmRequest::default();
+                MAX_ALGORITHM_REQUESTS],
         };
 
         let size = msg.write(buf)?;

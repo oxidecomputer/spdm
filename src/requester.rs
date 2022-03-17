@@ -58,7 +58,11 @@ pub struct Requester<'a, D, V> {
     state: Option<AllStates>,
 }
 
-impl<'a, D, V> Requester<'a, D, V> {
+impl<'a, D, V> Requester<'a, D, V>
+where
+    D: Digests,
+    V: for<'c> pki::Validator<'c>,
+{
     pub fn new(config: RequesterConfig<'a, D, V>) -> Requester<'a, D, V> {
         Requester {
             config,
@@ -74,14 +78,14 @@ impl<'a, D, V> Requester<'a, D, V> {
     /// this method is called when initialization is complete. In this case,
     /// the user should call the `begin_session` method.
     pub fn next_request<'b>(
-        &mut self,
+        &'a mut self,
         buf: &'b mut [u8],
     ) -> Result<&'b [u8], RequesterError> {
-        if let AllStates::Complete = &self.data.state {
+        if let AllStates::Complete = &self.state.unwrap() {
             return Err(RequesterError::Complete);
         }
-        let state = self.data.state.take().unwrap();
-        state.write_req(buf, &self.config, &mut self.data.transcript)
+        let state = self.state.take().unwrap();
+        state.write_req(buf, &self.config, &mut self.transcript)
     }
 
     /// The user calls `handle_msg` when a response is received over the
@@ -90,22 +94,21 @@ impl<'a, D, V> Requester<'a, D, V> {
     /// `Ok(true)` will be returned when the requester state machine has
     /// reached the `Complete` state.
     pub fn handle_msg<'b>(
-        &mut self,
+        &'a mut self,
         rsp: &[u8],
     ) -> Result<bool, RequesterError> {
-        let state = self.data.state.take().unwrap();
-        match state.handle_msg(rsp, &mut self.config, &mut self.data.transcript)
-        {
+        let state = self.state.take().unwrap();
+        match state.handle_msg(rsp, &mut self.config, &mut self.transcript) {
             Ok(next_state) => {
-                self.data.state = Some(next_state);
-                if let Some(AllStates::Complete) = self.data.state {
+                self.state = Some(next_state);
+                if let Some(AllStates::Complete) = self.state {
                     Ok(true)
                 } else {
                     Ok(false)
                 }
             }
             Err(e) => {
-                self.data.state = Some(AllStates::Error);
+                self.state = Some(AllStates::Error);
                 Err(e)
             }
         }
@@ -113,11 +116,11 @@ impl<'a, D, V> Requester<'a, D, V> {
 
     // Return the current state of the requester
     pub fn state(&self) -> &AllStates {
-        self.data.state.as_ref().unwrap()
+        self.state.as_ref().unwrap()
     }
 
     pub fn transcript(&self) -> &Transcript {
-        &self.data.transcript
+        &self.transcript
     }
 
     pub fn my_opaque_data(&mut self) -> &mut SliceVec<'a, u8> {
@@ -145,7 +148,7 @@ impl AllStates {
     fn write_req<'a, 'b, D, V>(
         &mut self,
         buf: &'a mut [u8],
-        config: &RequesterConfig<'b, D, V>,
+        config: &'b RequesterConfig<'b, D, V>,
         transcript: &mut Transcript,
     ) -> Result<&'a [u8], RequesterError>
     where
@@ -157,15 +160,15 @@ impl AllStates {
                 state.write_get_version(buf, transcript)
             }
             AllStates::Capabilities(state) => {
-                state.write_msg(buf, transcript, &config.capabilities)
+                state.write_msg(buf, transcript, config.capabilities())
             }
             AllStates::Algorithms(state) => state.write_msg(
                 buf,
                 transcript,
-                &config.digests,
-                config.asym_algos_supported,
+                config.digests(),
+                config.asym_algos_supported(),
             ),
-            AllStates::IdAuth(state) => self.write_get_certificate_msg(
+            AllStates::IdAuth(state) => state.write_get_certificate_msg(
                 buf,
                 transcript,
                 &mut config.responder_certs(),
@@ -179,7 +182,7 @@ impl AllStates {
     fn handle_msg<'a, D, V>(
         self,
         rsp: &[u8],
-        config: &mut RequesterConfig<'a, D, V>,
+        config: &'a mut RequesterConfig<'a, D, V>,
         transcript: &mut Transcript,
     ) -> Result<AllStates, RequesterError>
     where
@@ -214,7 +217,7 @@ impl AllStates {
                 let _ = state.handle_certificate(
                     rsp,
                     transcript,
-                    &mut config.responder_certs,
+                    &mut config.responder_certs(),
                 )?;
                 if state.requester_cap.contains(ReqFlags::CHAL_CAP) {
                     Ok(challenge::State::from(state).into())
@@ -226,7 +229,9 @@ impl AllStates {
                 state.handle_msg(
                     rsp,
                     transcript,
-                    &config.validator.as_ref().unwrap(),
+                    &config.digests().unwrap(),
+                    &config.validator().unwrap(),
+                    config.responder_certs(),
                 )?;
                 Ok(AllStates::Complete)
             }
@@ -239,7 +244,7 @@ impl AllStates {
     pub fn name(&self) -> &'static str {
         match self {
             AllStates::Error => "Error",
-            AllStates::Complte => "Complete",
+            AllStates::Complete => "Complete",
             AllStates::Version(_) => "Version",
             AllStates::Capabilities(_) => "Capabilities",
             AllStates::Algorithms(_) => "Algorithms",
@@ -259,9 +264,9 @@ impl AllStates {
         // capabilities. Convert the RspFlags into ReqFlags dropping bits that
         // don't exist in ReqFlags.
         let rsp_flags =
-            ReqFlags::from_bits_truncate(state.responder_cap.bits());
-        let err_bits = state.requester_cap - rsp_flags;
-        if err_bits.empty() {
+            ReqFlags::from_bits_truncate(state.responder_cap.unwrap().bits());
+        let err_bits = state.requester_cap.unwrap() - rsp_flags;
+        if err_bits.is_empty() {
             Ok(())
         } else {
             Err(RequesterError::CapabilitiesNotSupportedByResponder(err_bits))

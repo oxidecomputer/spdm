@@ -62,6 +62,7 @@ impl<'a> Validator for WebpkiValidator<'a> {
     type EndEntityCert = WebpkiEndEntityCert<'a>;
 
     fn validate(
+        &self,
         algo: BaseAsymAlgo,
         cert_chain: CertificateChain<'a>,
     ) -> Result<Self::EndEntityCert, Self::Error> {

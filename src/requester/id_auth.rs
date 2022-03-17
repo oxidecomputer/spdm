@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use core::convert::From;
+use core::convert::TryFrom;
 
 use super::{algorithms, expect, RequesterError};
 use crate::config::{Slot, SlotState};
@@ -36,6 +36,7 @@ pub struct State {
     pub responder_cap: RspFlags,
     pub algorithms: Algorithms,
     pub slot_id: Option<u8>,
+    pub digests: Option<Digests>,
 }
 
 impl From<algorithms::State> for State {
@@ -48,6 +49,7 @@ impl From<algorithms::State> for State {
             responder_cap: s.responder_cap,
             algorithms: s.algorithms.unwrap(),
             slot_id: None,
+            digests: None,
         }
     }
 }
@@ -93,14 +95,14 @@ impl State {
         &mut self,
         buf: &'a mut [u8],
         transcript: &mut Transcript,
-        responder_certs: &'a mut [Slot<'a>],
+        responder_certs: &'b mut [Slot<'b>],
     ) -> Result<&'a [u8], RequesterError> {
         // A requester must a-priori know what slots are filled by a
         // responder and what algotithms they use. There must not be
         // more than one slot with the same algorithm. The slot that
         // matches the negotiated algorithm should be retrieved.
         //
-        // Here we find the next empty responder slot for the
+        // Here we find an empty responder slot for the
         // negotiated algorithm and send a request for it.
         let slot = responder_certs
             .iter()
@@ -136,7 +138,7 @@ impl State {
         buf: &[u8],
         transcript: &mut Transcript,
         responder_certs: &'a mut [Slot<'a>],
-    ) -> Result<Certificate, RequesterError> {
+    ) -> Result<Certificate<'a>, RequesterError> {
         expect::<Certificate>(buf)?;
 
         // We assume that a GET_CERTIFICATE message has already been sent, and
@@ -144,7 +146,6 @@ impl State {
         let slot = responder_certs
             .iter_mut()
             .find(|slot| slot.id() == self.slot_id.unwrap())
-            .next()
             .unwrap();
 
         // Read the cert chain into the propper `responder_certs` entry.

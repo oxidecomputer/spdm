@@ -53,7 +53,7 @@ impl GetCertificate {
 }
 
 /// A CERTIFICATE message sent by a responder
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub struct Certificate<'a> {
     pub slot_id: u8,
     pub portion_length: u16,

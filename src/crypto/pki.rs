@@ -28,6 +28,7 @@ pub trait Validator<'a> {
     type EndEntityCert: EndEntityCert<'a>;
 
     fn validate(
+        &self,
         algorithm: BaseAsymAlgo,
         cert_chain: CertificateChain<'a>,
     ) -> Result<Self::EndEntityCert, Error>;
@@ -43,6 +44,7 @@ pub trait Validator<'a> {
 /// verifying signatures.
 pub trait EndEntityCert<'a> {
     fn verify_signature(
+        &self,
         algorithm: BaseAsymAlgo,
         msg: &[u8],
         signature: &[u8],

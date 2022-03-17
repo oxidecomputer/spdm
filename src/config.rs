@@ -31,6 +31,7 @@ pub const TRANSCRIPT_SIZE: usize = 512;
 ///
 /// A local slot is always full. A slot that is retrieved from requester or
 /// responder may not yet be full.
+#[derive(Debug, PartialEq)]
 pub enum SlotState {
     /// There is a full cert chain in the slot
     Full,
@@ -44,11 +45,12 @@ pub enum SlotState {
 /// Slots contain certificate chains or are placeholders for certificate
 /// chains. There are 8 slot ids ranging from 0 to 7. Each slot's algorithm is
 /// known a-priori whether it is for a requester or responder.
+#[derive(Debug, PartialEq)]
 pub struct Slot<'a> {
-    state: SlotState,
-    id: u8,
-    algo: BaseAsymAlgo,
-    buf: SliceVec<'a, u8>,
+    pub state: SlotState,
+    pub id: u8,
+    pub algo: BaseAsymAlgo,
+    pub buf: SliceVec<'a, u8>,
 }
 
 impl<'a> Slot<'a> {
@@ -62,6 +64,10 @@ impl<'a> Slot<'a> {
     }
     pub fn as_slice(&self) -> &[u8] {
         self.buf.as_slice()
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.buf.capacity()
     }
 
     pub fn len(&self) -> usize {
@@ -150,7 +156,7 @@ pub enum RequesterConfigError {
 // impl RequesterConfig<'a, (), V> {
 //     pub fn with_null_digests(...) -> Self { ...}
 //     }
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq)]
 pub struct RequesterConfig<'a, D, V> {
     digests: Option<D>,
     validator: Option<V>,
@@ -184,8 +190,8 @@ where
     pub fn new(
         digests: Option<D>,
         validator: Option<V>,
-        my_certs: &'a Slot<'a>,
-        responder_certs: &'a [Slot<'a>],
+        my_certs: &'a [Slot<'a>],
+        responder_certs: &'a mut [Slot<'a>],
         my_opaque_data: SliceVec<'a, u8>,
         responder_opaque_data: SliceVec<'a, u8>,
         capabilities: ReqFlags,
@@ -207,12 +213,28 @@ where
         config.validate()
     }
 
-    pub(crate) fn responder_certs(&self) -> &'a [Slot<'a>] {
+    pub(crate) fn responder_certs(&mut self) -> &mut [Slot<'a>] {
         self.responder_certs
     }
 
     pub fn my_opaque_data(&mut self) -> &mut SliceVec<'a, u8> {
         &mut self.my_opaque_data
+    }
+
+    pub fn capabilities(&self) -> ReqFlags {
+        self.capabilities
+    }
+
+    pub fn digests(&self) -> &Option<D> {
+        &self.digests
+    }
+
+    pub fn asym_algos_supported(&self) -> BaseAsymAlgo {
+        self.asym_algos_supported
+    }
+
+    pub fn validator(&self) -> &Option<V> {
+        &self.validator
     }
 
     // Ensure that the requester and responder certs match algorithms and then
@@ -221,10 +243,20 @@ where
         requester_certs: &'a [Slot<'a>],
         responder_certs: &'a [Slot<'a>],
     ) -> Result<BaseAsymAlgo, RequesterConfigError> {
-        let req_algos = requester_certs
-            .fold(BaseAsymAlgo::default(), |acc, slot| acc |= slot.algo());
-        let rsp_algos = responder_certs
-            .fold(BaseAsymAlgo::default(), |acc, slot| acc |= slot.algo());
+        let req_algos = requester_certs.iter().fold(
+            BaseAsymAlgo::default(),
+            |acc, slot| {
+                acc |= slot.algo();
+                acc
+            },
+        );
+        let rsp_algos = responder_certs.iter().fold(
+            BaseAsymAlgo::default(),
+            |acc, slot| {
+                acc |= slot.algo();
+                acc
+            },
+        );
 
         if req_algos != rsp_algos {
             Err(RequesterConfigError::CertificateAlgorithmMismatch {
@@ -249,16 +281,18 @@ where
         // Set intersection
         let err_caps = requiring_caps & self.capabilities;
         if !err_caps.is_empty() {
-            if !self.validator {
+            if self.validator.is_none() {
                 return Err(RequesterConfigError::ValidatorRequired(err_caps));
             }
 
-            if !self.digests {
+            if self.digests.is_none() {
                 return Err(RequesterConfigError::ValidatorRequired(err_caps));
             }
 
             if self.responder_certs.is_empty() {
-                return Err(RequesterConfigError::ResponderCertRequired);
+                return Err(RequesterConfigError::ResponderCertRequired(
+                    err_caps,
+                ));
             }
         };
 
@@ -267,7 +301,9 @@ where
         // set difference
         let err_caps = self.capabilities - supported_caps;
         if !err_caps.is_empty() {
-            return Err(RequesterConfigError::CapabiltiesNotSupported);
+            return Err(RequesterConfigError::CapabiltiesNotSupported(
+                err_caps,
+            ));
         }
 
         // TODO: Ensure that all requester and responder certs use algorithms
@@ -286,7 +322,7 @@ where
     fn validate_slots(slots: &[Slot<'a>]) -> Result<(), RequesterConfigError> {
         // We don't support RSA, and need to add Ed25519 once we upgrade the
         // algorithms message to 1.2.
-        let counts = heapless::LinearMap::<BaseAsymAlgo, 0>::new();
+        let mut counts = heapless::LinearMap::<BaseAsymAlgo, usize, 3>::new();
         counts.insert(BaseAsymAlgo::ECDSA_ECC_NIST_P256, 0).unwrap();
         counts.insert(BaseAsymAlgo::ECDSA_ECC_NIST_P384, 0).unwrap();
         counts.insert(BaseAsymAlgo::ECDSA_ECC_NIST_P521, 0).unwrap();
@@ -299,8 +335,8 @@ where
             }
             match counts.get_mut(&slot.algo()) {
                 Some(count) => {
-                    count += 1;
-                    if count > 1 {
+                    *count += 1;
+                    if *count > 1 {
                         return Err(
                         RequesterConfigError::AlgorithmUsedInMoreThanOneSlot(slot.algo)
                         );

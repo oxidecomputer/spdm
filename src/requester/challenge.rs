@@ -4,9 +4,9 @@
 
 use core::convert::From;
 use core::fmt::Debug;
-use core::marker::PhantomData;
 
 use super::{expect, id_auth, RequesterError};
+use crate::config::Slot;
 use crate::crypto::{
     pki::{self, EndEntityCert, Validator},
     Digests, Nonce,
@@ -80,7 +80,7 @@ impl From<id_auth::State> for State {
             responder_ct_exponent: s.responder_ct_exponent,
             responder_cap: s.responder_cap,
             algorithms: s.algorithms,
-            slot_id: s.slot_id.as_ref().unwrap(),
+            slot_id: s.slot_id.unwrap(),
             nonce: None,
         }
     }
@@ -106,16 +106,17 @@ impl State {
     /// Process a received responder message.
     ///
     /// Only CHALLENGE_AUTH msgs are acceptable here.
-    pub fn handle_msg<D, V>(
+    pub fn handle_msg<'a, D, V>(
         &self,
         buf: &[u8],
         transcript: &mut Transcript,
-        _: PhantomData<D>,
+        _: &D,
         validator: &V,
+        responder_certs: &'a mut [Slot<'a>],
     ) -> Result<(), RequesterError>
     where
         D: Digests,
-        V: for<'a> Validator<'a>,
+        V: for<'b> Validator<'b>,
     {
         expect::<ChallengeAuth>(buf)?;
         let hash_algo = self.algorithms.base_hash_algo_selected;
@@ -141,11 +142,13 @@ impl State {
             return Err(ChallengeAuthError::SlotNotInMask.into());
         }
 
+        let slot = responder_certs
+            .iter()
+            .find(|slot| slot.id == self.slot_id)
+            .unwrap();
+
         // TODO: Handle pre-provisioned certs
-        let digest = D::digest(
-            hash_algo,
-            &self.cert_chain[..self.cert_chain_size as usize],
-        );
+        let digest = D::digest(hash_algo, slot.as_slice());
 
         if rsp.cert_chain_hash.as_ref() != digest.as_ref() {
             return Err(ChallengeAuthError::DigestMismatch.into());
@@ -160,9 +163,7 @@ impl State {
         transcript.extend(&buf[..sig_start])?;
         let m2_hash = D::digest(hash_algo, transcript.get());
 
-        // TODO: Use heapless::Vec to get rid of this buffer nonsense
-        let cert_chain_buf = &self.cert_chain[..self.cert_chain_size as usize];
-        let cert_chain = CertificateChain::parse(cert_chain_buf, digest_size)?;
+        let cert_chain = CertificateChain::parse(slot.as_slice(), digest_size)?;
 
         // Validate the certificate chain using the trust authorities loaded
         // into `validator`.

@@ -29,7 +29,7 @@ impl State {
         &mut self,
         buf: &'a mut [u8],
         transcript: &mut Transcript,
-        flags: &ReqFlags,
+        flags: ReqFlags,
     ) -> Result<&'a [u8], RequesterError> {
         let msg = GetCapabilities {
             // TODO: Don't hardcode this - take it from config
