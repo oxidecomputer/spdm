@@ -2,6 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+use crate::config::{validate_slots, SlotConfigError};
 use crate::crypto::{pki, Digests};
 use crate::msgs::algorithms::BaseAsymAlgo;
 use crate::msgs::capabilities::ReqFlags;
@@ -34,25 +35,19 @@ pub enum RequesterConfigError {
     /// This restriction may be removed in the future.
     ChalCapRequiresCertCap,
 
-    /// Slots must have exactly one bit set for `algo`
-    SlotsMustHaveExactlyOneAlgoSelected,
-
-    /// The provided algorithm is not supported.
-    AlgorithmNotSupported(BaseAsymAlgo),
-
-    /// Each slot must use a unique algorithm
-    /// This is necessary so the implementation can choose which slot to use
-    /// based on the selected algorithm.
-    ///
-    /// It's anticipated that different requesters can chose different slots
-    /// depending upon the given responder, so this should not be problematic.
-    AlgorithmUsedInMoreThanOneSlot(BaseAsymAlgo),
-
     /// Requester and Responder certs do not use the same algorithms
     CertificateAlgorithmMismatch {
         requester_algos: BaseAsymAlgo,
         responder_algos: BaseAsymAlgo,
     },
+
+    Slot(SlotConfigError),
+}
+
+impl From<SlotConfigError> for RequesterConfigError {
+    fn from(e: SlotConfigError) -> Self {
+        RequesterConfigError::Slot(e)
+    }
 }
 
 // TODO: Use a new method, make some/most fields private
@@ -74,7 +69,7 @@ pub struct RequesterConfig<'a, D, V> {
     /// be deserialized into the provided buffer.
     responder_certs: &'a mut [Slot<'a>],
 
-    // Some mess
+    // Some messages accept opaque data fields from the requester
     my_opaque_data: SliceVec<'a, u8>,
 
     /// This is data received from the remote side of the connection and will
@@ -191,7 +186,7 @@ where
             }
 
             if self.digests.is_none() {
-                return Err(RequesterConfigError::ValidatorRequired(err_caps));
+                return Err(RequesterConfigError::DigestsRequired(err_caps));
             }
 
             if self.responder_certs.is_empty() {
@@ -214,47 +209,9 @@ where
         // TODO: Ensure that all requester and responder certs use algorithms
         // supported by the  Validator
 
-        Self::validate_slots(&self.my_certs)?;
-        Self::validate_slots(&self.responder_certs)?;
+        validate_slots(&self.my_certs)?;
+        validate_slots(&self.responder_certs)?;
 
         Ok(self)
-    }
-
-    // Ensure that exactly one bit of BaseAsymAlgo is set for each algorithm in
-    // `my_certs` and `responder_certs`.
-    //
-    // Also ensure that no more than one slot has the same algorithm.
-    fn validate_slots(slots: &[Slot<'a>]) -> Result<(), RequesterConfigError> {
-        // We don't support RSA, and need to add Ed25519 once we upgrade the
-        // algorithms message to 1.2.
-        let mut counts = heapless::LinearMap::<BaseAsymAlgo, usize, 3>::new();
-        counts.insert(BaseAsymAlgo::ECDSA_ECC_NIST_P256, 0).unwrap();
-        counts.insert(BaseAsymAlgo::ECDSA_ECC_NIST_P384, 0).unwrap();
-        counts.insert(BaseAsymAlgo::ECDSA_ECC_NIST_P521, 0).unwrap();
-
-        for slot in slots {
-            if slot.algo().bits().count_ones() != 1 {
-                return Err(
-                    RequesterConfigError::SlotsMustHaveExactlyOneAlgoSelected,
-                );
-            }
-            match counts.get_mut(&slot.algo()) {
-                Some(count) => {
-                    *count += 1;
-                    if *count > 1 {
-                        return Err(
-                        RequesterConfigError::AlgorithmUsedInMoreThanOneSlot(slot.algo)
-                        );
-                    }
-                }
-                None => {
-                    return Err(RequesterConfigError::AlgorithmNotSupported(
-                        slot.algo,
-                    ));
-                }
-            }
-        }
-
-        Ok(())
     }
 }

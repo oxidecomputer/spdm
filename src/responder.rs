@@ -15,15 +15,16 @@
 pub mod algorithms;
 pub mod capabilities;
 pub mod challenge;
+mod config;
 pub mod id_auth;
 pub mod version;
 
 mod error;
 
-use crate::config;
 use crate::crypto::{FilledSlot, Signer};
 use crate::msgs::{self, Msg};
 use crate::Transcript;
+pub use config::{ResponderConfig, ResponderConfigError};
 pub use error::ResponderError;
 
 use core::convert::From;
