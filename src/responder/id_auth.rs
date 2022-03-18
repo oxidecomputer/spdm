@@ -5,25 +5,23 @@
 use core::convert::TryFrom;
 
 use super::{algorithms, challenge, expect, AllStates, ResponderError};
-use crate::config::{MAX_CERT_CHAIN_SIZE, NUM_SLOTS};
-use crate::crypto::{Digests as DigestsTrait, ProvidedDigests};
+use crate::crypto::{Digests as DigestsTrait, Signer};
 use crate::msgs::{
     capabilities::{ReqFlags, RspFlags},
     common::DigestBuf,
     encoding::Writer,
-    Algorithms, Certificate, CertificateChain, Digests, GetCertificate,
-    GetDigests, Msg, HEADER_SIZE,
+    Algorithms, Certificate, Digests, GetCertificate, GetDigests, Msg,
+    HEADER_SIZE,
 };
+use crate::Slot;
 use crate::{reset_on_get_version, Transcript};
 
 /// Create a slot mask where a `1` represents a present cert chain, and a `0`
 /// indicates absence.
-pub fn create_slot_mask<'a, T: 'a>(slots: &[Option<T>; NUM_SLOTS]) -> u8 {
+pub fn create_slot_mask<'a, S>(slots: &[(S, Slot<'a>)]) -> u8 {
     let mut bits = 0u8;
-    for i in 0..NUM_SLOTS {
-        if slots[i].is_some() {
-            bits |= 1 << i;
-        }
+    for &(_, slot) in slots {
+        bits |= 1 << slot.id;
     }
     return bits;
 }
@@ -56,51 +54,46 @@ impl State {
     ///
     /// Only GET_VERSION, GET_DIGESTS, and GET_CERTIFICATE messsages are
     /// allowed.
-    pub fn handle_msg<'a>(
+    pub fn handle_msg<'a, S: Signer>(
         self,
-        cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
         req: &[u8],
         rsp: &mut [u8],
         transcript: &mut Transcript,
+        my_certs: &'a [(S, Slot<'a>)],
     ) -> Result<(usize, AllStates), ResponderError> {
         reset_on_get_version!(req, rsp, transcript);
 
         if GetDigests::parse_header(req)? {
-            return self.handle_get_digests(cert_chains, req, rsp, transcript);
+            return self.handle_get_digests(req, rsp, transcript, my_certs);
         }
 
         // TODO: Handle more than one CERTIFICATE message. How do we decide when
         // to transfer to the next state then?
         expect::<GetCertificate>(req)?;
-        self.handle_get_certificate(cert_chains, req, rsp, transcript)
+        self.handle_get_certificate(req, rsp, transcript, my_certs)
     }
 
-    fn handle_get_certificate<'a>(
+    fn handle_get_certificate<'a, S>(
         self,
-        cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
         req: &[u8],
         rsp: &mut [u8],
         transcript: &mut Transcript,
+        my_certs: &'a [(S, Slot<'a>)],
     ) -> Result<(usize, AllStates), ResponderError> {
         let get_cert = GetCertificate::parse_body(&req[HEADER_SIZE..])?;
-        if get_cert.slot as usize >= NUM_SLOTS {
+        let slot = my_certs.iter().find(|(_, slot)| get_cert.slot == slot.id);
+        if slot.is_none() {
             return Err(ResponderError::InvalidSlot);
         }
+        let (_, slot) = slot.unwrap();
 
         // TODO: Handle cert chains larger than response buffer (i.e. send
         // responses in multiple messages)
-        let mut cert_chain = [0u8; MAX_CERT_CHAIN_SIZE];
-        let mut portion_length: u16 = 0;
-        if let Some(chain) = &cert_chains[get_cert.slot as usize] {
-            let mut w = Writer::new(&mut cert_chain);
-            portion_length = chain.write(&mut w)? as u16;
-        }
-
         let cert = Certificate {
-            slot: get_cert.slot,
-            portion_length,
+            slot_id: slot.id,
+            portion_length: u16::try_from(slot.len()).unwrap(),
             remainder_length: 0,
-            cert_chain,
+            cert_chain: slot,
         };
 
         let size = cert.write(rsp)?;
@@ -110,15 +103,15 @@ impl State {
         Ok((size, challenge::State::from(self).into()))
     }
 
-    fn handle_get_digests<'a>(
+    fn handle_get_digests<'a, S>(
         self,
-        cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
         req: &[u8],
         rsp: &mut [u8],
         transcript: &mut Transcript,
+        my_certs: &'a [(S, Slot<'a>)],
     ) -> Result<(usize, AllStates), ResponderError> {
-        let slot_mask = create_slot_mask(cert_chains);
-        let digests = self.hash_cert_chains(cert_chains)?;
+        let slot_mask = create_slot_mask(my_certs);
+        let digests = self.hash_cert_chains(my_certs)?;
 
         let digests = Digests { slot_mask, digests };
         let size = digests.write(rsp)?;
@@ -129,13 +122,13 @@ impl State {
         Ok((size, self.into()))
     }
 
-    fn hash_cert_chains<'a>(
+    fn hash_cert_chains<'a, S>(
         &self,
-        cert_chains: &[Option<CertificateChain<'a>>; NUM_SLOTS],
-    ) -> Result<[Option<DigestBuf>; NUM_SLOTS], ResponderError> {
+        my_certs: &'a [(S, Slot<'a>)],
+    ) -> Result<[Option<DigestBuf>; config::NUM_SLOTS], ResponderError> {
         // Avoid requiring DigestBuf to implement Copy
         const VAL: Option<DigestBuf> = None;
-        let mut digests = [VAL; NUM_SLOTS];
+        let mut digests = [VAL; config::NUM_SLOTS];
         let mut buf = [0u8; MAX_CERT_CHAIN_SIZE];
         for i in 0..NUM_SLOTS {
             if let Some(cert_chain) = &cert_chains[i] {

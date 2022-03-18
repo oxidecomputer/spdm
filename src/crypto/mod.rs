@@ -9,7 +9,6 @@ pub mod digest;
 mod nonce;
 pub mod pki;
 pub mod signing;
-mod slot;
 
 #[cfg(not(feature = "crypto"))]
 mod no_crypto_defaults;
@@ -24,4 +23,3 @@ pub use self::ring::digest::ProvidedDigests;
 pub use digest::{Digests, SupportedDigestAlgorithms};
 pub use nonce::Nonce;
 pub use signing::Signer;
-pub use slot::FilledSlot;

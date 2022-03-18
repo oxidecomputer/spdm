@@ -21,7 +21,7 @@ pub mod version;
 
 mod error;
 
-use crate::crypto::{FilledSlot, Signer};
+use crate::crypto::{Digests, Signer};
 use crate::msgs::{self, Msg};
 use crate::Transcript;
 pub use config::{ResponderConfig, ResponderConfigError};
@@ -62,12 +62,12 @@ pub enum AllStates {
 }
 
 impl AllStates {
-    fn handle<'a, 'b, S: Signer>(
+    fn handle<'a, 'b, D, S>(
         self,
         req: &[u8],
         rsp: &'a mut [u8],
         transcript: &mut Transcript,
-        slots: &'b [Option<FilledSlot<'b, S>>; config::NUM_SLOTS],
+        config: &'b ResponderConfig<'b, D, S>,
     ) -> (&'a [u8], AllStates, Result<(), ResponderError>) {
         let res = match self {
             AllStates::Version(state) => state.handle_msg(req, rsp, transcript),
@@ -125,20 +125,22 @@ impl AllStates {
 
 /// A wrapper around the Responder state machine states contained in
 /// `AllStates`.
-pub struct Responder<'a, S: Signer> {
-    slots: [Option<FilledSlot<'a, S>>; config::NUM_SLOTS],
+pub struct Responder<'a, D, S> {
+    config: ResponderConfig<'a, D, S>,
     transcript: Transcript,
     // This Option allows us to move between states at runtime, without having
     // to take self by value.
     state: Option<AllStates>,
 }
 
-impl<'a, S: Signer> Responder<'a, S> {
-    pub fn new(
-        slots: [Option<FilledSlot<'a, S>>; config::NUM_SLOTS],
-    ) -> Responder<'a, S> {
+impl<'a, D, S> Responder<'a, D, S>
+where
+    D: Digests,
+    S: Signer,
+{
+    pub fn new(config: ResponderConfig<'a, D, S>) -> Responder<'a, D, S> {
         Responder {
-            slots,
+            config,
             transcript: Transcript::new(),
             state: Some(version::State {}.into()),
         }
@@ -153,7 +155,7 @@ impl<'a, S: Signer> Responder<'a, S> {
     ) -> (&'b [u8], Result<(), ResponderError>) {
         let state = self.state.take().unwrap();
         let (out, next_state, result) =
-            state.handle(req, rsp, &mut self.transcript, &self.slots);
+            state.handle(req, rsp, &mut self.transcript, &self.config);
         self.state = Some(next_state);
         (out, result)
     }
@@ -168,10 +170,6 @@ impl<'a, S: Signer> Responder<'a, S> {
 
     pub fn transcript(&self) -> &Transcript {
         &self.transcript
-    }
-
-    pub fn slots(&self) -> &[Option<FilledSlot<'a, S>>; config::NUM_SLOTS] {
-        &self.slots
     }
 
     /// Go back to the initial `version::State`.

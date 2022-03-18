@@ -148,8 +148,12 @@ impl State {
             .find(|slot| slot.id() == self.slot_id.unwrap())
             .unwrap();
 
-        // Read the cert chain into the propper `responder_certs` entry.
-        let cert = Certificate::parse_body(&buf[HEADER_SIZE..], slot)?;
+        let digest_size =
+            self.algorithms.base_hash_algo_selected.get_digest_size();
+
+        // Read the cert chain into the proper slot
+        let cert =
+            Certificate::parse_body(&buf[HEADER_SIZE..], digest_size, slot)?;
         transcript.extend(buf)?;
         Ok(cert)
     }

@@ -5,7 +5,10 @@
 use tinyvec::SliceVec;
 
 use crate::msgs::algorithms::BaseAsymAlgo;
+use crate::msgs::common::DigestBuf;
 use crate::msgs::encoding::{ReadError, Reader};
+
+type RootHash = DigestBuf;
 
 /// The state of a slot holding a certificate chain.
 ///
@@ -13,8 +16,8 @@ use crate::msgs::encoding::{ReadError, Reader};
 /// responder may not yet be full.
 #[derive(Debug, PartialEq)]
 pub enum SlotState {
-    /// There is a full cert chain in the slot
-    Full,
+    /// There is a full cert chain in the slot.
+    Full(RootHash),
     /// There is no cert chain in the slot
     Empty,
     /// The cert chain has been partially retrieved in a CERTIFICATE msg
@@ -72,6 +75,7 @@ impl<'a> Slot<'a> {
         &mut self,
         reader: &mut Reader<'b>,
         len: usize,
+        root_hash: DigestBuf,
     ) -> Result<(), ReadError> {
         // We don't currently allow partial fills
         assert!(self.state == SlotState::Empty);
@@ -81,7 +85,7 @@ impl<'a> Slot<'a> {
             self.buf.set_len(0);
             return Err(e);
         }
-        self.state = SlotState::Full;
+        self.state = SlotState::Full(root_hash);
         Ok(())
     }
 

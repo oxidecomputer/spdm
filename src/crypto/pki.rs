@@ -2,9 +2,12 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+use core::convert::TryFrom;
+
 use crate::config::MAX_SIGNATURE_SIZE;
 use crate::msgs::algorithms::BaseAsymAlgo;
-use crate::msgs::certificates::CertificateChain;
+use crate::msgs::encoding::{ReadError, Reader};
+use crate::slot::Slot;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -187,5 +190,115 @@ const fn der_length(size: usize) -> usize {
         2
     } else {
         3
+    }
+}
+
+const MAX_CERT_CHAIN_DEPTH: usize = 10;
+
+/// Represents a complete certificate chain. This may result from the
+/// concatenation of buffers from multiple `Certificate` messages. For now we
+/// only support retreiving cert chains in a single message.
+///
+/// Certificates inside the cert chain are verified outside of this module.
+///
+/// This corresponds to the "Certificate chain format" table in section 10.6.1
+/// of version 1.1.1 of the SPDM spec
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CertificateChain<'a> {
+    // The certs are in order from closest to the root to the leaf.
+    // In this implementation we assume that the root certificate is *not*
+    // transmitted via the SPDM protocol, but instead is provisioned out of
+    // band.
+    pub intermediate_certs: heapless::Vec<&'a [u8], MAX_CERT_CHAIN_DEPTH>,
+
+    pub leaf_cert: &'a [u8],
+}
+
+#[derive(Debug)]
+pub struct MaxCertChainDepthExceededError;
+
+#[derive(Debug, PartialEq)]
+pub enum ParseCertificateChainError {
+    BadDerEncoding,
+    LengthMismatch,
+    MaxDepthExceeded,
+    Read(ReadError),
+}
+
+impl From<ReadError> for ParseCertificateChainError {
+    fn from(e: ReadError) -> Self {
+        ParseCertificateChainError::Read(e)
+    }
+}
+
+impl<'a> TryFrom<Slot<'a>> for CertificateChain<'a> {
+    type Error = ParseCertificateChainError;
+    fn try_from(slot: Slot<'a>) -> Result<Self, Self::Error> {
+        let mut r = Reader::new(slot.as_slice());
+        let intermediate_certs = heapless::Vec::new();
+
+        // parse DER headers of certs
+        let leaf_offset = loop {
+            let offset = r.byte_offset();
+            let (length, header_size) = Self::read_cert_size(&mut r)?;
+            if length > r.remaining() {
+                return Err(ParseCertificateChainError::LengthMismatch);
+            }
+            if length == r.remaining() {
+                // we found the end entity cert
+                break offset;
+            }
+            if intermediate_certs.len() == MAX_CERT_CHAIN_DEPTH {
+                return Err(ParseCertificateChainError::MaxDepthExceeded);
+            }
+            let end = offset + length + header_size;
+            intermediate_certs.push(&slot.as_slice()[offset..end]);
+            r.skip_ignored(length)?;
+        };
+
+        let leaf_cert = &slot.as_slice()[leaf_offset..];
+        Ok(CertificateChain { intermediate_certs, leaf_cert })
+    }
+}
+
+impl<'a> CertificateChain<'a> {
+    // Read the size of the cert from the DER encoded header along with the
+    // number of bytes read (2 - 4).
+    //
+    // If the high order bit of the first byte is set to zero then the length
+    // is encoded in the seven remaining bits of that byte. Otherwise, those
+    // seven bits represent the number of bytes used to encode the length in big
+    // endian format.
+    fn read_cert_size(
+        r: &mut Reader,
+    ) -> Result<(usize, usize), ParseCertificateChainError> {
+        // Skip the sequence byte
+        if r.get_byte()? != DER_TAG_SEQUENCE {
+            return Err(ParseCertificateChainError::BadDerEncoding);
+        }
+
+        let pair = match r.get_byte()? {
+            n if (n & 0x80) == 0 => (n.into(), 2),
+            0x81 => {
+                let n = r.get_byte()?;
+                if n < 128 {
+                    return Err(ParseCertificateChainError::BadDerEncoding);
+                }
+                (n.into(), 3)
+            }
+            0x82 => {
+                let high = r.get_byte()? as usize;
+                let low = r.get_byte()? as usize;
+                let n = (high << 8) | low;
+                if n < 256 {
+                    return Err(ParseCertificateChainError::BadDerEncoding);
+                }
+                (n.into(), 4)
+            }
+            _ => {
+                return Err(ParseCertificateChainError::BadDerEncoding);
+            }
+        };
+        Ok(pair)
     }
 }

@@ -30,6 +30,7 @@ impl From<SlotConfigError> for ResponderConfigError {
         ResponderConfigError::Slot(e)
     }
 }
+
 /// Configuration for a Responder
 ///
 // Once we support mutual auth we will provide cert slots for the requester and
@@ -82,6 +83,10 @@ where
         };
 
         config.validate()
+    }
+
+    pub fn my_certs(&self) -> &[(S, Slot<'a>)] {
+        &self.my_certs
     }
 
     pub fn my_opaque_data(&mut self) -> &mut SliceVec<'a, u8> {
