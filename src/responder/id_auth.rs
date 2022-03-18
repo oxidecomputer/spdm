@@ -5,11 +5,11 @@
 use core::convert::TryFrom;
 
 use super::{algorithms, challenge, expect, AllStates, ResponderError};
+use crate::config;
 use crate::crypto::{Digests as DigestsTrait, Signer};
 use crate::msgs::{
     capabilities::{ReqFlags, RspFlags},
     common::DigestBuf,
-    encoding::Writer,
     Algorithms, Certificate, Digests, GetCertificate, GetDigests, Msg,
     HEADER_SIZE,
 };
@@ -54,7 +54,7 @@ impl State {
     ///
     /// Only GET_VERSION, GET_DIGESTS, and GET_CERTIFICATE messsages are
     /// allowed.
-    pub fn handle_msg<'a, S: Signer>(
+    pub fn handle_msg<'a, S: Signer, D: DigestsTrait>(
         self,
         req: &[u8],
         rsp: &mut [u8],
@@ -64,7 +64,8 @@ impl State {
         reset_on_get_version!(req, rsp, transcript);
 
         if GetDigests::parse_header(req)? {
-            return self.handle_get_digests(req, rsp, transcript, my_certs);
+            return self
+                .handle_get_digests::<S, D>(req, rsp, transcript, my_certs);
         }
 
         // TODO: Handle more than one CERTIFICATE message. How do we decide when
@@ -103,15 +104,18 @@ impl State {
         Ok((size, challenge::State::from(self).into()))
     }
 
-    fn handle_get_digests<'a, S>(
+    fn handle_get_digests<'a, S, D>(
         self,
         req: &[u8],
         rsp: &mut [u8],
         transcript: &mut Transcript,
         my_certs: &'a [(S, Slot<'a>)],
-    ) -> Result<(usize, AllStates), ResponderError> {
+    ) -> Result<(usize, AllStates), ResponderError>
+    where
+        D: DigestsTrait,
+    {
         let slot_mask = create_slot_mask(my_certs);
-        let digests = self.hash_cert_chains(my_certs)?;
+        let digests = self.hash_cert_chains::<S, D>(my_certs)?;
 
         let digests = Digests { slot_mask, digests };
         let size = digests.write(rsp)?;
@@ -122,26 +126,24 @@ impl State {
         Ok((size, self.into()))
     }
 
-    fn hash_cert_chains<'a, S>(
+    fn hash_cert_chains<'a, S, D>(
         &self,
         my_certs: &'a [(S, Slot<'a>)],
-    ) -> Result<[Option<DigestBuf>; config::NUM_SLOTS], ResponderError> {
+    ) -> Result<[Option<DigestBuf>; config::NUM_SLOTS], ResponderError>
+    where
+        D: DigestsTrait,
+    {
         // Avoid requiring DigestBuf to implement Copy
         const VAL: Option<DigestBuf> = None;
         let mut digests = [VAL; config::NUM_SLOTS];
-        let mut buf = [0u8; MAX_CERT_CHAIN_SIZE];
-        for i in 0..NUM_SLOTS {
-            if let Some(cert_chain) = &cert_chains[i] {
-                let mut w = Writer::new(&mut buf);
-                let size = cert_chain.write(&mut w)?;
-                let digest = ProvidedDigests::digest(
-                    self.algorithms.base_hash_algo_selected,
-                    &buf[..size],
-                );
-                digests[i] =
-                    Some(DigestBuf::try_from(digest.as_ref()).unwrap());
-            }
+        for (_, slot) in my_certs {
+            let digest = D::digest(
+                self.algorithms.base_hash_algo_selected,
+                slot.as_slice(),
+            );
+            digests[usize::from(slot.id)] = Some(digest)
         }
+
         Ok(digests)
     }
 }
