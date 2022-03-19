@@ -26,7 +26,7 @@ pub mod version;
 
 pub use algorithms::{Algorithms, NegotiateAlgorithms};
 pub use capabilities::{Capabilities, GetCapabilities};
-pub use certificates::{Certificate, CertificateChain, GetCertificate};
+pub use certificates::{Certificate, GetCertificate};
 pub use challenge::{Challenge, ChallengeAuth, MeasurementHashType};
 pub use common::{OpaqueData, OpaqueElement, VendorId, VendorRegistryId};
 pub use digest::{Digests, GetDigests};

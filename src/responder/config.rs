@@ -110,7 +110,7 @@ where
     fn derive_asym_algos(responder_certs: &'a [(S, Slot<'a>)]) -> BaseAsymAlgo {
         responder_certs.iter().fold(
             BaseAsymAlgo::default(),
-            |acc, (_, slot)| {
+            |mut acc, (_, slot)| {
                 acc |= slot.algo();
                 acc
             },
@@ -148,7 +148,7 @@ where
         // supported by the  Validator
 
         // Temp var used for validation
-        let mut slots: heapless::Vec<_, 8> =
+        let slots: heapless::Vec<_, 8> =
             self.my_certs.iter().map(|(_, slot)| slot).collect();
 
         validate_slots(slots.as_slice())?;

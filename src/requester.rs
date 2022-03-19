@@ -82,11 +82,11 @@ where
         &'a mut self,
         buf: &'b mut [u8],
     ) -> Result<&'b [u8], RequesterError> {
-        if let AllStates::Complete = &self.state.unwrap() {
+        if let AllStates::Complete = &self.state.as_ref().unwrap() {
             return Err(RequesterError::Complete);
         }
-        let state = self.state.take().unwrap();
-        state.write_req(buf, &self.config, &mut self.transcript)
+        let mut state = self.state.take().unwrap();
+        state.write_req(buf, &mut self.config, &mut self.transcript)
     }
 
     /// The user calls `handle_msg` when a response is received over the
@@ -149,7 +149,7 @@ impl AllStates {
     fn write_req<'a, 'b, D, V>(
         &mut self,
         buf: &'a mut [u8],
-        config: &'b RequesterConfig<'b, D, V>,
+        config: &'b mut RequesterConfig<'b, D, V>,
         transcript: &mut Transcript,
     ) -> Result<&'a [u8], RequesterError>
     where
@@ -196,7 +196,7 @@ impl AllStates {
             }
             AllStates::Capabilities(state) => {
                 let next_state = state.handle_msg(rsp, transcript)?;
-                Self::ensure_responder_capabilities(&state)?;
+                Self::ensure_responder_capabilities(&next_state)?;
                 Ok(next_state.into())
             }
             AllStates::Algorithms(mut state) => {
@@ -218,7 +218,7 @@ impl AllStates {
                 let _ = state.handle_certificate(
                     rsp,
                     transcript,
-                    &mut config.responder_certs(),
+                    &mut config.responder_certs,
                 )?;
                 if state.requester_cap.contains(ReqFlags::CHAL_CAP) {
                     Ok(challenge::State::from(state).into())
@@ -227,12 +227,11 @@ impl AllStates {
                 }
             }
             AllStates::Challenge(state) => {
-                state.handle_msg(
+                state.handle_msg::<D, V>(
                     rsp,
                     transcript,
-                    &config.digests().unwrap(),
-                    &config.validator().unwrap(),
-                    config.responder_certs(),
+                    config.validator.as_ref().unwrap(),
+                    config.responder_certs,
                 )?;
                 Ok(AllStates::Complete)
             }
@@ -259,14 +258,14 @@ impl AllStates {
     // implicitly the required capabilities in this implementation so as to
     // prevent skipping required message exchanges and reducing security.
     fn ensure_responder_capabilities(
-        state: &capabilities::State,
+        state: &algorithms::State,
     ) -> Result<(), RequesterError> {
         // The responder capabilities are a strict superset of the requester
         // capabilities. Convert the RspFlags into ReqFlags dropping bits that
         // don't exist in ReqFlags.
         let rsp_flags =
-            ReqFlags::from_bits_truncate(state.responder_cap.unwrap().bits());
-        let err_bits = state.requester_cap.unwrap() - rsp_flags;
+            ReqFlags::from_bits_truncate(state.responder_cap.bits());
+        let err_bits = state.requester_cap - rsp_flags;
         if err_bits.is_empty() {
             Ok(())
         } else {

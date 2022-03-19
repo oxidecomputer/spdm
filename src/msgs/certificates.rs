@@ -139,13 +139,13 @@ impl<'a> Certificate<'a> {
     fn read_cert_chain(
         r: &mut Reader,
         digest_size: DigestSize,
-        slot: &'a mut Slot<'a>,
+        slot: &mut Slot<'a>,
     ) -> Result<(), ReadError> {
         let length = usize::from(r.get_u16()?);
         r.skip_reserved(2)?;
         let root_hash = DigestBuf::read(digest_size, r)?;
         let cert_chain_len = length - 4 - usize::from(digest_size);
-        slot.fill(&mut r, cert_chain_len, root_hash)?;
+        slot.fill(r, cert_chain_len, root_hash)?;
         Ok(())
     }
 

@@ -20,7 +20,7 @@ use crate::{reset_on_get_version, Transcript};
 /// indicates absence.
 pub fn create_slot_mask<'a, S>(slots: &[(S, Slot<'a>)]) -> u8 {
     let mut bits = 0u8;
-    for &(_, slot) in slots {
+    for (_, slot) in slots {
         bits |= 1 << slot.id;
     }
     return bits;

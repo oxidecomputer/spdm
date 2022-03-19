@@ -2,13 +2,13 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use crate::crypto::pki;
+use crate::crypto::{pki, pki::ParseCertificateChainError};
 use crate::msgs::{
     algorithms::{
         ParseAlgorithmsError, ParseBaseAsymAlgoError, ParseBaseHashAlgoError,
     },
     capabilities::{ParseCapabilitiesError, ParseReqCapabilityError, ReqFlags},
-    certificates::{ParseCertificateChainError, ParseCertificateError},
+    certificates::ParseCertificateError,
     challenge::ParseChallengeAuthError,
     version::ParseVersionError,
     BufferFullError, ParseHeaderError, ReadError, Version,

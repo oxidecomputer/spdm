@@ -2,19 +2,19 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use core::convert::From;
+use core::convert::{From, TryFrom};
 use core::fmt::Debug;
 
 use super::{expect, id_auth, RequesterError};
 use crate::crypto::{
-    pki::{self, EndEntityCert, Validator},
+    pki::{self, CertificateChain, EndEntityCert, Validator},
     Digests, Nonce,
 };
 use crate::msgs::{
     capabilities::{ReqFlags, RspFlags},
     challenge::ParseChallengeAuthError,
-    Algorithms, CertificateChain, Challenge, ChallengeAuth,
-    MeasurementHashType, Msg, VersionEntry, HEADER_SIZE,
+    Algorithms, Challenge, ChallengeAuth, MeasurementHashType, Msg,
+    VersionEntry, HEADER_SIZE,
 };
 use crate::Slot;
 
@@ -110,7 +110,6 @@ impl State {
         &self,
         buf: &[u8],
         transcript: &mut Transcript,
-        _: &D,
         validator: &V,
         responder_certs: &'a mut [Slot<'a>],
     ) -> Result<(), RequesterError>
@@ -163,7 +162,7 @@ impl State {
         transcript.extend(&buf[..sig_start])?;
         let m2_hash = D::digest(hash_algo, transcript.get());
 
-        let cert_chain = CertificateChain::parse(slot.as_slice(), digest_size)?;
+        let cert_chain = CertificateChain::try_from(slot)?;
 
         // Validate the certificate chain using the trust authorities loaded
         // into `validator`.

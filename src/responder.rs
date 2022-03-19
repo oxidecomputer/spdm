@@ -27,7 +27,6 @@ use crate::Transcript;
 pub use config::{ResponderConfig, ResponderConfigError};
 pub use error::ResponderError;
 
-use core::convert::From;
 use derive_more::From;
 
 /// `AllStates` is a container for all the states in a responder.
@@ -68,26 +67,31 @@ impl AllStates {
         rsp: &'a mut [u8],
         transcript: &mut Transcript,
         config: &'b ResponderConfig<'b, D, S>,
-    ) -> (&'a [u8], AllStates, Result<(), ResponderError>) {
+    ) -> (&'a [u8], AllStates, Result<(), ResponderError>)
+    where
+        D: Digests,
+        S: Signer,
+    {
         let res = match self {
             AllStates::Version(state) => state.handle_msg(req, rsp, transcript),
             AllStates::Capabilities(state) => {
-                state.handle_msg(req, rsp, transcript)
+                state.handle_msg(req, rsp, transcript, config.capabilities())
             }
             AllStates::Algorithms(state) => {
                 state.handle_msg(req, rsp, transcript)
             }
-            AllStates::IdAuth(state) => {
-                let mut cert_chains = [None; config::NUM_SLOTS];
-                for i in 0..slots.len() {
-                    cert_chains[i] =
-                        slots[i].as_ref().map(|s| s.cert_chain.clone());
-                }
-                state.handle_msg(&cert_chains, req, rsp, transcript)
-            }
-            AllStates::Challenge(state) => {
-                state.handle_msg(slots, req, rsp, transcript)
-            }
+            AllStates::IdAuth(state) => state.handle_msg::<S, D>(
+                req,
+                rsp,
+                transcript,
+                config.my_certs(),
+            ),
+            AllStates::Challenge(state) => state.handle_msg::<S, D>(
+                req,
+                rsp,
+                transcript,
+                config.my_certs(),
+            ),
             _ => unimplemented!(),
         };
         match res {

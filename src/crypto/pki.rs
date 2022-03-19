@@ -231,11 +231,11 @@ impl From<ReadError> for ParseCertificateChainError {
     }
 }
 
-impl<'a> TryFrom<Slot<'a>> for CertificateChain<'a> {
+impl<'a> TryFrom<&'a Slot<'a>> for CertificateChain<'a> {
     type Error = ParseCertificateChainError;
-    fn try_from(slot: Slot<'a>) -> Result<Self, Self::Error> {
+    fn try_from(slot: &'a Slot<'a>) -> Result<Self, Self::Error> {
         let mut r = Reader::new(slot.as_slice());
-        let intermediate_certs = heapless::Vec::new();
+        let mut intermediate_certs = heapless::Vec::new();
 
         // parse DER headers of certs
         let leaf_offset = loop {
@@ -252,7 +252,7 @@ impl<'a> TryFrom<Slot<'a>> for CertificateChain<'a> {
                 return Err(ParseCertificateChainError::MaxDepthExceeded);
             }
             let end = offset + length + header_size;
-            intermediate_certs.push(&slot.as_slice()[offset..end]);
+            intermediate_certs.push(&slot.as_slice()[offset..end]).unwrap();
             r.skip_ignored(length)?;
         };
 

@@ -52,8 +52,9 @@ impl State {
     where
         D: Digests,
     {
-        let base_hash_algo =
-            d.map_or(BaseHashAlgo::default(), |_| D::supported_algorithms());
+        let base_hash_algo = d
+            .as_ref()
+            .map_or(BaseHashAlgo::default(), |_| D::supported_algorithms());
 
         let msg = NegotiateAlgorithms {
             measurement_spec: MeasurementSpec::DMTF,

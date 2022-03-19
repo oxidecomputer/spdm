@@ -58,8 +58,8 @@ impl From<SlotConfigError> for RequesterConfigError {
 //     }
 #[derive(Debug, PartialEq)]
 pub struct RequesterConfig<'a, D, V> {
-    digests: Option<D>,
-    validator: Option<V>,
+    pub(crate) digests: Option<D>,
+    pub(crate) validator: Option<V>,
 
     /// This is only needed for mutual authentication, which we don't currently
     /// support. It's fine to leave it blank for now.
@@ -67,7 +67,7 @@ pub struct RequesterConfig<'a, D, V> {
 
     /// This is data received from the remote side of the connection and will
     /// be deserialized into the provided buffer.
-    responder_certs: &'a mut [Slot<'a>],
+    pub(crate) responder_certs: &'a mut [Slot<'a>],
 
     // Some messages accept opaque data fields from the requester
     my_opaque_data: SliceVec<'a, u8>,
@@ -140,19 +140,19 @@ where
     // Ensure that the requester and responder certs match algorithms and then
     // report the supported algorithms.
     fn derive_asym_algos(
-        requester_certs: &'a [Slot<'a>],
-        responder_certs: &'a [Slot<'a>],
+        requester_certs: &[Slot<'a>],
+        responder_certs: &[Slot<'a>],
     ) -> Result<BaseAsymAlgo, RequesterConfigError> {
         let req_algos = requester_certs.iter().fold(
             BaseAsymAlgo::default(),
-            |acc, slot| {
+            |mut acc, slot| {
                 acc |= slot.algo();
                 acc
             },
         );
         let rsp_algos = responder_certs.iter().fold(
             BaseAsymAlgo::default(),
-            |acc, slot| {
+            |mut acc, slot| {
                 acc |= slot.algo();
                 acc
             },

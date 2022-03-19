@@ -43,7 +43,7 @@ impl<'a> AsRef<Slot<'a>> for Slot<'a> {
 }
 
 impl<'a> Slot<'a> {
-    fn new(
+    pub fn new(
         state: SlotState,
         id: u8,
         algo: BaseAsymAlgo,
@@ -87,9 +87,5 @@ impl<'a> Slot<'a> {
         }
         self.state = SlotState::Full(root_hash);
         Ok(())
-    }
-
-    pub(crate) fn clear(&mut self) {
-        self.buf.clear();
     }
 }

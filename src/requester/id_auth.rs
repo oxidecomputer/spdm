@@ -95,7 +95,7 @@ impl State {
         &mut self,
         buf: &'a mut [u8],
         transcript: &mut Transcript,
-        responder_certs: &'b mut [Slot<'b>],
+        responder_certs: &mut [Slot<'b>],
     ) -> Result<&'a [u8], RequesterError> {
         // A requester must a-priori know what slots are filled by a
         // responder and what algotithms they use. There must not be

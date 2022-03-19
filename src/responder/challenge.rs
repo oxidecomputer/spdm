@@ -6,15 +6,13 @@ use core::convert::From;
 
 use super::{expect, id_auth, AllStates, ResponderError};
 
-use crate::config::{MAX_CERT_CHAIN_SIZE, NUM_SLOTS};
-use crate::crypto::{Digests, FilledSlot, Nonce, ProvidedDigests, Signer};
+use crate::crypto::{Digests, Nonce, Signer};
 use crate::msgs::{
     capabilities::{ReqFlags, RspFlags},
     common::{DigestBuf, SignatureBuf},
-    encoding::Writer,
     Algorithms, Challenge, ChallengeAuth, Msg, OpaqueData, HEADER_SIZE,
 };
-use crate::{reset_on_get_version, Transcript};
+use crate::{reset_on_get_version, Slot, Transcript};
 
 /// Challenge requests are handled and responded to in this state
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
@@ -42,12 +40,12 @@ impl State {
     /// Handle a message from a requester
     ///
     /// Only CHALLENGE and GET_VERSION msgs are allowed here.
-    pub fn handle_msg<'a, S: Signer>(
+    pub fn handle_msg<'a, S: Signer, D: Digests>(
         self,
-        slots: &[Option<FilledSlot<'a, S>>; NUM_SLOTS],
         req: &[u8],
         rsp: &mut [u8],
         transcript: &mut Transcript,
+        slots: &'a [(S, Slot<'a>)],
     ) -> Result<(usize, AllStates), ResponderError> {
         reset_on_get_version!(req, rsp, transcript);
         expect::<Challenge>(req)?;
@@ -58,22 +56,13 @@ impl State {
 
         let req_msg = Challenge::parse_body(&req[HEADER_SIZE..])?;
 
-        let cert_chain_digest =
-            if let Some(Some(slot)) = slots.get(req_msg.slot as usize) {
-                let mut buf = [0u8; MAX_CERT_CHAIN_SIZE];
-                let mut w = Writer::new(&mut buf);
-                let size = slot.cert_chain.write(&mut w)?;
+        let (signer, slot) = slots
+            .iter()
+            .find(|(_, s)| s.id() == req_msg.slot)
+            .ok_or(ResponderError::InvalidSlot)?;
 
-                // TODO: Should we fail this if the selected hash algorithm does
-                // not match the slot?
-                // See https://github.com/oxidecomputer/spdm/issues/25
-                ProvidedDigests::digest(
-                    self.algorithms.base_hash_algo_selected,
-                    &buf[..size],
-                )
-            } else {
-                return Err(ResponderError::InvalidSlot);
-            };
+        let cert_chain_digest =
+            D::digest(self.algorithms.base_hash_algo_selected, slot.as_slice());
 
         let use_mutual_auth =
             self.requester_cap.contains(ReqFlags::MUT_AUTH_CAP)
@@ -84,6 +73,8 @@ impl State {
 
         transcript.extend(req)?;
 
+        // TODO: Update this for the 1.2 spec
+        //
         // Build the M1 transcript according to the SPDM spec.
         //
         // We need to extend the transcript with the serialized ChallengeAuth
@@ -100,6 +91,7 @@ impl State {
             cert_chain_digest.as_ref(),
             Nonce::new(),
             measurement_summary_hash.as_ref(),
+            // TODO: Use the negotiated form from ALGORITHMS msg of 1.2 spec.
             OpaqueData::default(),
             dummy_sig.as_ref(),
         );
@@ -109,19 +101,10 @@ impl State {
         let sig_start = size - usize::from(signature_size);
         transcript.extend(&rsp[..sig_start])?;
 
-        let m1_hash = ProvidedDigests::digest(
+        let m1_hash = D::digest(
             self.algorithms.base_hash_algo_selected,
             transcript.get(),
         );
-
-        // Unwrap is safe because we are already using this slot
-        let signer = &slots
-            .get(req_msg.slot as usize)
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .signer;
 
         let signature = signer
             .sign(m1_hash.as_ref())
