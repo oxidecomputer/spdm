@@ -2,7 +2,7 @@
 name = "spdm"
 version = "0.1.0"
 edition = "2018"
-license = "MPL 2.0"
+license = "MPL-2.0"
 
 [features]
 crypto-ring = ["ring", "webpki", "rand", "ring-compat"]
